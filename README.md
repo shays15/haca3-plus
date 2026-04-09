@@ -24,12 +24,14 @@ Our work focuses on robust validation at scale, rather than proposing a new arch
 Learns a continuous artifact severity score
 Trained using simulated artifacts (noise, bias field, ghosting, anisotropy)
 Improves sensitivity to varying image quality levels
+
 **2. Spatially-Aware Attention**
 Replaces slice-wise scalar attention with pixel-wise attention
 Uses union of foreground/background masks
 Enables:
 Better limited field-of-view (FOV) handling
 Improved region imputation
+
 **3. Large-Scale Training**
 996 subjects
 64 sites
