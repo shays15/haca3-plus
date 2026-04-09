@@ -1,9 +1,9 @@
 # 🧠 HACA3+: Harmonizing MR Images Across 100+ Scanners
 
-MIDL 2026 (Validation Track)
-Savannah P. Hays et al.
-Harmonizing MR Images Across 100+ Scanners: Multi-site Validation with Traveling Subjects and Real-world Protocols
-Link: https://openreview.net/forum?id=TjqfzvRZWg&referrer=%5Bthe%20profile%20of%20Savannah%20P%20Hays%5D(%2Fprofile%3Fid%3D~Savannah_P_Hays1)
+**Savannah P. Hays et al.**  
+*MIDL 2026 (Validation Track), Taipei, Taiwan — July 2026*
+
+📄 **Paper:** [Harmonizing MR Images Across 100+ Scanners: Multi-site Validation with Traveling Subjects and Real-world Protocols](https://openreview.net/forum?id=TjqfzvRZWg)
 
 # 🚀 Overview
 
