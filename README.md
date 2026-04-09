@@ -7,7 +7,7 @@
 
 # 🚀 Overview
 
-Magnetic Resonance (MR) images acquired across different scanners, sites, and protocols exhibit significant variability, which limits the reliability of downstream analysis and machine learning models.
+Magnetic resonance (MR) images acquired across different scanners, sites, and protocols exhibit significant variability, which limits the reliability of downstream analysis and machine learning models.
 
 We present HACA3+, an enhanced version of the HACA3 framework for unsupervised MR image harmonization, designed to operate across large-scale, real-world clinical datasets.
 
@@ -20,17 +20,17 @@ HACA3+ introduces:
 Our work focuses on robust validation at scale, rather than proposing a new architecture.
 
 # 🔬 Key Contributions
-1. Enhanced Artifact Encoder
+**1. Enhanced Artifact Encoder**
 Learns a continuous artifact severity score
 Trained using simulated artifacts (noise, bias field, ghosting, anisotropy)
 Improves sensitivity to varying image quality levels
-2. Spatially-Aware Attention
+**2. Spatially-Aware Attention**
 Replaces slice-wise scalar attention with pixel-wise attention
 Uses union of foreground/background masks
 Enables:
 Better limited field-of-view (FOV) handling
 Improved region imputation
-3. Large-Scale Training
+**3. Large-Scale Training**
 996 subjects
 64 sites
 132 scanners
