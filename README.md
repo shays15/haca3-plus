@@ -24,9 +24,10 @@ Our work focuses on robust validation at scale, rather than proposing a new arch
 Learns a continuous artifact severity score
 Trained using simulated artifacts (noise, bias field, ghosting, anisotropy)
 Improves sensitivity to varying image quality levels
+Based on prior work Hays et al MIDL 2025 https://github.com/shays15/artifact_scoring
 
-**2. Spatially-Aware Attention**
-Replaces slice-wise scalar attention with pixel-wise attention
+**2. Foreground-Aware Attention**
+Replaces slice-wise scalar attention with foreground/background attention
 Uses union of foreground/background masks
 Enables:
 Better limited field-of-view (FOV) handling
