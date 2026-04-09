@@ -32,16 +32,12 @@ Our work focuses on robust validation at scale, rather than proposing a new arch
 - Based on prior work:  
   🔗 [Artifact Scoring (Hays et al., MIDL 2025)](https://github.com/shays15/artifact_scoring)
 
----
-
 ### 2. 🎯 Foreground-Aware Attention
 - Replaces slice-wise scalar attention with **foreground/background-aware attention**
 - Uses the **union of foreground/background masks**
 - Enables:
   - Improved **limited field-of-view (FOV) handling**
   - More accurate **region imputation**
-
----
 
 ### 3. 🌍 Large-Scale Training
 - **996 subjects**
