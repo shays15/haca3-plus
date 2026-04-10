@@ -40,12 +40,5 @@ HACA3+ introduces:
   - More accurate **region imputation**
 
 ### 3. 🌍 Large-Scale Training
-- **996 subjects**
-- **64 sites**
-- **132 scanners**
-
-**MR contrasts:**
-- T1-weighted (T1w)
-- T2-weighted (T2w)
-- FLAIR
-- Proton Density (PD)
+- Multi-contrast structural MR brain images: T1-weighted (T1w), T2-weighted (T2w), FLAIR, and Proton Density (PD)
+- Over 100 different scanners represented including five manufacturers (GE, Hitachi, Philips, Siemens, and Toshiba)
