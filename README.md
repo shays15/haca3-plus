@@ -21,7 +21,7 @@
     ```
 - Citation:    
     ```bibtex
-    @article{hays2026midl,
+    @inproceedings{hays2026midl,
     title = {{Harmonizing MR Images Across 100+ Scanners: Multi-site
     Validation with Traveling Subjects and Real-world Protocols}},
     journal = {Proceedings of Medical Imaging with Deep Learning~(MIDL
