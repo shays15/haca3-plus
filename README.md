@@ -1,5 +1,4 @@
 # 🧠 HACA3+: Harmonizing MR Images Across 100+ Scanners
-*Medical Imaging with Deep Learning (MIDL) 2026 (Validation Track), Taipei, Taiwan — July 8-10, 2026*
 
 **This page is currently under construction. Pre-trained weights and code coming April 2026!**
 
