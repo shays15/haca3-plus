@@ -42,3 +42,10 @@ HACA3+ introduces:
 ### 3. 🌍 Large-Scale Training
 - Multi-contrast structural MR brain images: T1-weighted (T1w), T2-weighted (T2w), FLAIR, and Proton Density (PD)
 - Over 100 different scanners represented including five manufacturers (GE, Hitachi, Philips, Siemens, and Toshiba)
+
+
+## Prerequisites
+Standard neuroimage preprocessing steps are needed before running HACA3. These preprocessing steps include:
+- Inhomogeneity correction
+- Super-resolution for 2D acquired scans. This step is optional, but recommended for optimal performance. See [ECLARE](https://github.com/sremedios/eclare) for more details.
+- Registration to MNI space (1mm isotropic resolution). HACA3 assumes a spatial dimension of 192x224x192.
