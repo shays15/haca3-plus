@@ -8,10 +8,10 @@
 **Citation**
     ```bibtex
     @inproceedings{hays2026midl,
-    author    = {S.~P. Hays and L. Zuo and M.~F.~A. Chaudhary and K.~M.
+    author = {S.~P. Hays and L. Zuo and M.~F.~A. Chaudhary and K.~M.
     Bartz and S.~W. Remedios J. Zhang and M. Bilgel and E.~M. Mowry and
     S.~D. Newsome and B.~E. Dewey and J.~L. Prince and A. Carsss},
-    title     = {{Harmonizing MR Images Across 100+ Scanners: Multi-site
+    title = {{Harmonizing MR Images Across 100+ Scanners: Multi-site
     Validation with Traveling Subjects and Real-world Protocols}},
     booktitle = {Proceedings of Medical Imaging with Deep Learning~(MIDL
     2026), Taipei, Taiwan, July 8 -- 10, 2026},
