@@ -4,21 +4,21 @@
 **This page is currently under construction. Pre-trained weights and code coming April 2026!**
 
 ### <img src="https://raw.githubusercontent.com/iampavangandhi/iampavangandhi/master/gifs/Hi.gif" width="30">Recent Updates
-- 📄 Publication: [Harmonizing MR Images Across 100+ Scanners: Multi-site Validation with Traveling Subjects and Real-world Protocols](https://openreview.net/forum?id=TjqfzvRZWg) accepted for poster presentation at *Medical Imaging with Deep Learning (MIDL) 2026 (Validation Track), Taipei, Taiwan — July 8-10, 2026*.
-- Citation:    
-    ```bibtex
-    @inproceedings{hays2026midl,
-    title = {{Harmonizing MR Images Across 100+ Scanners: Multi-site
-    Validation with Traveling Subjects and Real-world Protocols}},
-    booktitle = {Proceedings of Medical Imaging with Deep Learning~(MIDL
-    2026), Taipei, Taiwan, July 8 -- 10, 2026},
-    pages = {},
-    year = {2026},
-    author = {S.~P. Hays and L. Zuo and M.~F.~A. Chaudhary and K.~M.
-    Bartz and S.~W. Remedios J. Zhang and M. Bilgel and E.~M. Mowry and
-    S.~D. Newsome and B.~E. Dewey and J.~L. Prince and A. Carsss}
-    }
-    ```
+- 📄 [Harmonizing MR Images Across 100+ Scanners: Multi-site Validation with Traveling Subjects and Real-world Protocols](https://openreview.net/forum?id=TjqfzvRZWg) accepted for poster presentation at *Medical Imaging with Deep Learning (MIDL) 2026 (Validation Track), Taipei, Taiwan — July 8-10, 2026*.
+    - Citation:    
+        ```bibtex
+        @inproceedings{hays2026midl,
+        title = {{Harmonizing MR Images Across 100+ Scanners: Multi-site
+        Validation with Traveling Subjects and Real-world Protocols}},
+        booktitle = {Proceedings of Medical Imaging with Deep Learning~(MIDL
+        2026), Taipei, Taiwan, July 8 -- 10, 2026},
+        pages = {},
+        year = {2026},
+        author = {S.~P. Hays and L. Zuo and M.~F.~A. Chaudhary and K.~M.
+        Bartz and S.~W. Remedios J. Zhang and M. Bilgel and E.~M. Mowry and
+        S.~D. Newsome and B.~E. Dewey and J.~L. Prince and A. Carsss}
+        }
+        ```
 
 ## 🚀 Overview
 
