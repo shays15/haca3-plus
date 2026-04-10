@@ -14,8 +14,10 @@ We present HACA3+, an enhanced version of the [HACA3](https://github.com/lianrui
 HACA3+ introduces:
 
 ✅ Improved artifact-aware encoding
+
 ✅ Foreground/background-aware attention
-✅ Training on 100+ scanners from 64 sites
+
+✅ Training on 100+ scanners from over 50 sites
 
 Our work focuses on robust validation at scale, rather than proposing a new architecture.
 
