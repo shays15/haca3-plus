@@ -24,7 +24,7 @@
     @inproceedings{hays2026midl,
     title = {{Harmonizing MR Images Across 100+ Scanners: Multi-site
     Validation with Traveling Subjects and Real-world Protocols}},
-    journal = {Proceedings of Medical Imaging with Deep Learning~(MIDL
+    booktitle = {Proceedings of Medical Imaging with Deep Learning~(MIDL
     2026), Taipei, Taiwan, July 8 -- 10, 2026},
     pages = {},
     year = {2026},
