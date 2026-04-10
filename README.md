@@ -9,7 +9,7 @@
 
 Magnetic resonance (MR) images acquired across different scanners, sites, and protocols exhibit significant variability, which limits the reliability of downstream analysis and machine learning models.
 
-We present HACA3+, an enhanced version of the HACA3 framework for unsupervised MR image harmonization, designed to operate across large-scale, real-world clinical datasets.
+We present HACA3+, an enhanced version of the [HACA3](https://github.com/lianruizuo/haca3) framework for unsupervised MR image harmonization, designed to operate across large-scale, real-world clinical datasets.
 
 HACA3+ introduces:
 
