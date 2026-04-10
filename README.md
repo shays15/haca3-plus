@@ -21,7 +21,7 @@ HACA3+ introduces:
 
 ## 🔬 Key Contributions
 
-### 1. 🧪 Enhanced Artifact Encoder
+### 🧪 Enhanced Artifact Encoder
 - Learns a **continuous artifact severity score**
 - Trained using simulated artifacts:
   - noise
@@ -32,14 +32,14 @@ HACA3+ introduces:
 - Based on prior work:  
   🔗 [Artifact Scoring (Hays et al., MIDL 2025)](https://github.com/shays15/artifact_scoring)
 
-### 2. 🎯 Foreground-Aware Attention
+### 🎯 Foreground-Aware Attention
 - Replaces slice-wise scalar attention with **foreground/background-aware attention**
 - Uses the **union of foreground/background masks**
 - Enables:
   - Improved **limited field-of-view (FOV) handling**
   - More accurate **region imputation**
 
-### 3. 🌍 Large-Scale Training
+### 🌍 Large-Scale Training
 - Multi-contrast structural MR brain images: T1-weighted (T1w), T2-weighted (T2w), FLAIR, and Proton Density (PD)
 - Over 100 different scanners represented including five manufacturers (GE, Hitachi, Philips, Siemens, and Toshiba)
 
@@ -50,14 +50,14 @@ Standard neuroimage preprocessing steps are needed before running HACA3. These p
 - Super-resolution for 2D acquired scans. This step is optional, but recommended for optimal performance. See [ECLARE](https://github.com/sremedios/eclare) for more details.
 - Registration to MNI space (1mm isotropic resolution). HACA3 assumes a spatial dimension of 192x224x192.
 
-## 3. Installation and pretrained weights
+## Installation and pretrained weights
 
-### 3.1 Option 1 (recommended): Run HACA3 through singularity image
+### Option 1 (recommended): Run HACA3 through singularity image
 In general, no installation of HACA3 is required with this option. 
 Singularity image of HACA3 model can be directly downloaded [**here**](TODO).
 
 
-### 3.2 Option 2: Install from source using `pip`
+### Option 2: Install from source using `pip`
 1. Clone the repository:
     ```bash
     git clone https://github.com/shays15/haca3-plus.git 
@@ -74,14 +74,14 @@ Package requirements are automatically handled. To see a list of requirements, s
 This installs the `haca3` package and creates two CLI aliases `haca3-train` and `haca3-test`.
 
 
-### 3.3 Pretrained weights
+### Pretrained weights
 Pretrained weights of HACA3 can be downloaded [**here**](TODO). 
 HACA3 uses a 3D convolutional network to combine multi-orientation 2D slices into a single 3D volume. 
 Pretrained fusion model can be downloaded [**here**](TODO).
 
-## 4. Usage: Inference
+## Usage: Inference
 
-### 4.1 Option 1 (recommended): Run HACA3 through singularity image
+### Option 1 (recommended): Run HACA3 through singularity image
    ```bash
    singularity exec --nv -e haca3.sif haca3-test \
    --in-path [PATH-TO-INPUT-SOURCE-IMAGE-1] \
@@ -93,7 +93,7 @@ Pretrained fusion model can be downloaded [**here**](TODO).
    --intermediate-out-dir [DIRECTORY SAVES INTERMEDIATE RESULTS] 
    ```
 
-- ***Example #3:***
+- ***Example:***
     Suppose the task is to harmonize MR images from `Site A` to match the contrast of a pre-selected T1w image of 
     `Site B`. As a source site, `Site A` has T1w, T2w, and FLAIR images. The files are saved like this:
     ```
@@ -104,7 +104,7 @@ Pretrained fusion model can be downloaded [**here**](TODO).
         └──site_B_t1w.nii.gz
     ```
     You can always retrain HACA3 using your own datasets. In this example, we choose to use the pretrained HACA3 weights 
-    `harmonization.pt` and fusion model weights `fusion.pt` (see [3.3 Pretrained weights](#33-pretrained-weights) for 
+    `harmonization.pt` and fusion model weights `fusion.pt` (see [Pretrained weights](pretrained-weights) for 
     how to download these weights). The singularity command to run HACA3 is:
     ```bash
        singularity exec --nv -e haca3.sif haca3-test \
@@ -120,7 +120,7 @@ Pretrained fusion model can be downloaded [**here**](TODO).
     The harmonized image and intermediate results will be saved at `output_directory`.
 
 
-### 4.2 Option 2: Run HACA3 from source after installation
+### Option 2: Run HACA3 from source after installation
    ```bash
    haca3-test \
    --in-path [PATH-TO-INPUT-SOURCE-IMAGE-1] \
@@ -133,7 +133,7 @@ Pretrained fusion model can be downloaded [**here**](TODO).
    ```
 
 
-### 4.3 All options for inference
+### All options for inference
 - ```--in-path```: file path to input source image. Multiple ```--in-path``` may be provided if there are multiple 
 source images. See the above example for more details.
 - ```--target-image```: file path to target image. HACA3 will match the contrast of source images to this target image.
@@ -154,7 +154,7 @@ be downloaded [here](TODO).
 GPU memory. For reduced GPU memory consumption, source images maybe divided into smaller batches. 
 However, this may slightly increase the inference time.
 
-## 5. Go further with harmonization 
+## Go further with harmonization 
 - ***Application #1: Identifying optimal operating contrast.*** With the ability of synthesizing arbitrary 
 contrasts of the same underlying anatomy, we use harmonization to identify the optimal operating contrast (OOC) of various
 downstream tasks, e.g., different segmentation algorithms. 
@@ -182,7 +182,7 @@ from MR images themselves. This information can be used to inform downstream tas
     [Hays et al. Quantifying Contrast Differences Among Magnetic Resonance Images Used in Clinical Studies. CMSC 2023.](https://scholar.google.com/citations?view_op=view_citation&hl=en&user=pMxz1VYAAAAJ&citation_for_view=pMxz1VYAAAAJ:qjMakFHDy7sC)
 
 
-## 6. Acknowledgements
+## Acknowledgements
 This research is partially supported by the Johns Hopkins University Percy Pierre Fellowship~(Hays) and the National Science Foundation Graduate Research Fellowship under Grant No. DGE-2139757~(Hays).
 Development is partially supported by FG-2008-36966~(Dewey), CDMRP W81XWH2010912~(Prince), NIH R01EB036013~(Prince), NIH R01 CA253923~(Landman), NIH R01 CA275015~(Landman), the National MS Society grant RG-1507-05243~(Pham) and Patient-Centered Outcomes Research Institute~(PCORI) grant MS-1610-37115~(Newsome and Mowry).
 The statements in this publication are solely the responsibility of the authors and do not necessarily represent the views of the Patient-Centered Outcomes Research Institute~(PCORI), its Board of Governors or Methodology Committee.
