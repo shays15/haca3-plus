@@ -19,8 +19,6 @@ HACA3+ introduces:
 
 ✅ Training on 100+ scanners from over 50 sites
 
-Our work focuses on robust validation at scale, rather than proposing a new architecture.
-
 ## 🔬 Key Contributions
 
 ### 1. 🧪 Enhanced Artifact Encoder
