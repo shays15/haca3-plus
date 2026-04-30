@@ -17,8 +17,8 @@ transform_dict = {
     tio.RandomBiasField(): 0.25
 }
 degradation_transform = tio.OneOf(transform_dict)
-#contrast_names = ['T1PRE', 'T2', 'PD', 'FLAIR']
-contrast_names = ['T1PRE', 'T2', 'PD', 'FLAIR','T1POST']
+contrast_names = ['T1PRE', 'T2', 'PD', 'FLAIR']
+# contrast_names = ['T1PRE', 'T2', 'PD', 'FLAIR','T1POST']
 
 
 def get_tensor_from_fpath(fpath, normalization_method):
