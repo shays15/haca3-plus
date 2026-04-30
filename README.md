@@ -1,6 +1,6 @@
 # 🧠 HACA3+: Harmonizing MR Images Across 100+ Scanners
 
-**This page is currently under construction. Pre-trained weights and code coming April 2026!**
+**This page is currently under construction. Code is available. Pre-trained weights and singularity container coming May 2026!**
 
 ### <img src="https://raw.githubusercontent.com/iampavangandhi/iampavangandhi/master/gifs/Hi.gif" width="30">Recent Updates
 - 📄 [Harmonizing MR Images Across 100+ Scanners: Multi-site Validation with Traveling Subjects and Real-world Protocols](https://openreview.net/forum?id=TjqfzvRZWg) accepted for poster presentation at *Medical Imaging with Deep Learning (MIDL) 2026 (Validation Track), Taipei, Taiwan — July 8-10, 2026*.
