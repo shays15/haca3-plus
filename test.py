@@ -5,7 +5,7 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 import torch
-from torchvision.transforms import ToTensor
+# from torchvision.transforms import ToTensor
 
 from skimage.filters import threshold_otsu
 from skimage.morphology import isotropic_closing
@@ -49,8 +49,18 @@ def obtain_single_image(image_path, bg_removal=True):
     image_padded[112 - n_row // 2:112 + n_row // 2 + n_row % 2,
                  112 - n_col // 2:112 + n_col // 2 + n_col % 2,
                  112 - n_slc // 2:112 + n_slc // 2 + n_slc % 2] = image_vol
-    return ToTensor()(image_padded), image_obj.header, thresh
+    
+    # print(f"Image Padded shape: {image_padded.shape}")
+    # image_padded_tensor = ToTensor()(image_padded)
+    # print(f"Image Padded Tensor shape: {image_padded_tensor.shape}")
+    image_padded_numpy = torch.from_numpy(image_padded)
+    image_padded_numpy_reorient = image_padded_numpy.permute(2, 0, 1)
+    # print(f"Image Padded Numpy shape: {image_padded_numpy.shape}")
+    # image_padded_numpy_uns = image_padded_numpy.unsqueeze(0)
+    # print(f"Image Padded Numpy Unsqueeze shape: {image_padded_numpy_uns.shape}")
 
+    # return ToTensor()(image_padded), image_obj.header, thresh
+    return image_padded_numpy_reorient, image_obj.header, thresh
 
 def load_source_images(image_paths, bg_removal=True):
     source_images = []
@@ -216,4 +226,3 @@ def main(args=None):
 
 if __name__ == '__main__':
         main()
-
