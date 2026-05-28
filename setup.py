@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-__package_name__ = "haca3-plus"
+__package_name__ = "haca3_plus"
 
 
 def get_version_and_cmdclass(pkg_path):
