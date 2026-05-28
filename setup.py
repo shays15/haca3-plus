@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-__package_name__ = "haca3"
+__package_name__ = "haca3-plus"
 
 
 def get_version_and_cmdclass(pkg_path):
@@ -24,11 +24,11 @@ __version__, cmdclass = get_version_and_cmdclass(__package_name__)
 setup(
     name=__package_name__,
     version=__version__,
-    description="HACA3: A unified approach for multi-site MR image harmonization",
+    description="HACA3+: A unified approach for multi-site MR image harmonization",
     long_description="HACA3: A unified approach for multi-site MR image harmonization",
-    author="Lianrui Zuo",
-    author_email="lr_zuo@jhu.edu",
-    url="https://gitlab.com/lr_zuo/haca3",
+    author="Savannah Hays",
+    author_email="shays6@jhu.edu",
+    url="https://gitlab.com/shays15/haca3-plus",
     license="Apache License, 2.0",
     classifiers=[
         "Development Status :: 3 - Alpha",
@@ -42,8 +42,8 @@ setup(
     keywords="mri harmonization",
     entry_points={
         "console_scripts": [
-            "haca3-train=haca3.train:main",
-            "haca3-test=haca3.test:main",
+            "haca3-train=haca3-plus.train:main",
+            "haca3-test=haca3-plus.test:main",
         ]
     },
     install_requires=[
