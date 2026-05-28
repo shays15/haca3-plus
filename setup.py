@@ -25,7 +25,7 @@ setup(
     name=__package_name__,
     version=__version__,
     description="HACA3+: A unified approach for multi-site MR image harmonization",
-    long_description="HACA3: A unified approach for multi-site MR image harmonization",
+    long_description="HACA3+: A unified approach for multi-site MR image harmonization",
     author="Savannah Hays",
     author_email="shays6@jhu.edu",
     url="https://gitlab.com/shays15/haca3-plus",
@@ -42,8 +42,8 @@ setup(
     keywords="mri harmonization",
     entry_points={
         "console_scripts": [
-            "haca3-train=haca3-plus.train:main",
-            "haca3-test=haca3-plus.test:main",
+            "haca3-train=haca3_plus.train:main",
+            "haca3-test=haca3_plus.test:main",
         ]
     },
     install_requires=[
