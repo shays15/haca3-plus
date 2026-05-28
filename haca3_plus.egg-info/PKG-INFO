@@ -1,0 +1,20 @@
+Metadata-Version: 2.1
+Name: haca3_plus
+Version: 0.1.0
+Summary: HACA3+: A unified approach for multi-site MR image harmonization
+Home-page: https://github.com/shays15/haca3-plus
+Author: Savannah Hays
+Author-email: shays6@jhu.edu
+License: Apache License, 2.0
+Keywords: mri harmonization
+Requires-Dist: nibabel
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: torch
+Requires-Dist: torchvision
+Requires-Dist: tqdm
+Requires-Dist: torchio
+Requires-Dist: scikit-image
+Requires-Dist: tensorboard
+
+HACA3+: A unified approach for multi-site MR image harmonization

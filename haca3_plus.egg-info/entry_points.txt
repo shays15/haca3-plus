@@ -1,0 +1,3 @@
+[console_scripts]
+haca3-test = haca3_plus.test:main
+haca3-train = haca3_plus.train:main

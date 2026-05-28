@@ -21,23 +21,19 @@ __version__, cmdclass = get_version_and_cmdclass(__package_name__)
 
 
 # noinspection PyTypeChecker
+from setuptools import setup, find_packages
+
+__package_name__ = "haca3_plus"
+
 setup(
     name=__package_name__,
-    version=__version__,
+    version="0.1.0",
     description="HACA3+: A unified approach for multi-site MR image harmonization",
     long_description="HACA3+: A unified approach for multi-site MR image harmonization",
     author="Savannah Hays",
     author_email="shays6@jhu.edu",
-    url="https://gitlab.com/shays15/haca3-plus",
+    url="https://github.com/shays15/haca3-plus",
     license="Apache License, 2.0",
-    classifiers=[
-        "Development Status :: 3 - Alpha",
-        "Environment :: Console",
-        "Intended Audience :: Science/Research",
-        "License :: OSI Approved :: Apache Software License",
-        "Programming Language :: Python :: 3.8",
-        "Topic :: Scientific/Engineering",
-    ],
     packages=find_packages(),
     keywords="mri harmonization",
     entry_points={
@@ -55,7 +51,6 @@ setup(
         "tqdm",
         "torchio",
         "scikit-image",
-        "tensorboard"
+        "tensorboard",
     ],
-    cmdclass=cmdclass,
 )

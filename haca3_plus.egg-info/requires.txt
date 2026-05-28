@@ -1,0 +1,9 @@
+nibabel
+numpy
+scipy
+torch
+torchvision
+tqdm
+torchio
+scikit-image
+tensorboard
