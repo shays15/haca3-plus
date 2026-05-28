@@ -3,7 +3,7 @@ from glob import glob
 import torch
 from torch.utils.data.dataset import Dataset
 import numpy as np
-from torchvision.transforms import Compose, Pad, CenterCrop, ToTensor, ToPILImage
+from torchvision.transforms import Compose, Pad, CenterCrop, ToPILImage #,ToTensor
 import torchio as tio
 import nibabel as nib
 
