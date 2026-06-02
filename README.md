@@ -1,6 +1,6 @@
 # 🧠 HACA3+: Harmonizing MR Images Across 100+ Scanners
 
-**This page is currently under construction. Code is available. Pre-trained weights and singularity container coming May 2026!**
+**This page is currently under construction. Code and pretrained weights are available. Singularity container coming June 2026!**
 
 ### <img src="https://raw.githubusercontent.com/iampavangandhi/iampavangandhi/master/gifs/Hi.gif" width="30">Recent Updates
 - 📄 [Harmonizing MR Images Across 100+ Scanners: Multi-site Validation with Traveling Subjects and Real-world Protocols](https://openreview.net/forum?id=TjqfzvRZWg) accepted for poster presentation at *Medical Imaging with Deep Learning (MIDL) 2026 (Validation Track), Taipei, Taiwan — July 8-10, 2026*.
@@ -67,8 +67,8 @@ Standard neuroimage preprocessing steps are needed before running HACA3. These p
 ## Installation and pretrained weights
 
 ### Option 1 (recommended): Run HACA3 through singularity image
-In general, no installation of HACA3 is required with this option. 
-Singularity image of HACA3 model can be directly downloaded [**here**](TODO).
+In general, no installation of HACA3+ is required with this option. 
+Singularity image of HACA3+ model can be directly downloaded [**here**](TODO) (COMING JUNE 2026).
 
 
 ### Option 2: Install from source using `pip`
@@ -78,26 +78,26 @@ Singularity image of HACA3 model can be directly downloaded [**here**](TODO).
     ```
 2. Navigate to the directory:
     ```bash
-    cd haca3
+    cd haca3-plus
     ```
 3. Install dependencies:
     ```bash
     pip install . 
     ```
 Package requirements are automatically handled. To see a list of requirements, see `setup.py` L50-60. 
-This installs the `haca3` package and creates two CLI aliases `haca3-train` and `haca3-test`.
+This installs the `haca3-plus` package and creates two CLI aliases `haca3-train` and `haca3-test`.
 
 
 ### Pretrained weights
-Pretrained weights of HACA3 can be downloaded [**here**](TODO). 
-HACA3 uses a 3D convolutional network to combine multi-orientation 2D slices into a single 3D volume. 
+Pretrained weights of HACA3+ can be downloaded [**here**](TODO). 
+HACA3+ uses a 3D convolutional network to combine multi-orientation 2D slices into a single 3D volume. 
 Pretrained fusion model can be downloaded [**here**](TODO).
 
 ## Usage: Inference
 
-### Option 1 (recommended): Run HACA3 through singularity image
+### Option 1 (recommended): Run HACA3+ through singularity image
    ```bash
-   singularity exec --nv -e haca3.sif haca3-test \
+   singularity exec --nv -e haca3-plus.sif haca3-test \
    --in-path [PATH-TO-INPUT-SOURCE-IMAGE-1] \
    --in-path [PATH-TO-INPUT-SOURCE-IMAGE-2, IF THERE ARE MULTIPLE SOURCE IMAGES] \
    --target-image [TARGET-IMAGE] \
@@ -117,10 +117,10 @@ Pretrained fusion model can be downloaded [**here**](TODO).
         ├──site_A_flair.nii.gz
         └──site_B_t1w.nii.gz
     ```
-    You can always retrain HACA3 using your own datasets. In this example, we choose to use the pretrained HACA3 weights 
-    `harmonization.pt` and fusion model weights `fusion.pt`. The singularity command to run HACA3 is:
+    You can always retrain HACA3+ using your own datasets. In this example, we choose to use the pretrained HACA3+ weights 
+    `harmonization.pt` and fusion model weights `fusion.pt`. The singularity command to run HACA3+ is:
     ```bash
-       singularity exec --nv -e haca3.sif haca3-test \
+       singularity exec --nv -e haca3-plus.sif haca3-test \
        --in-path data_directory/site_A_t1w.nii.gz \
        --in-path data_directory/site_A_t2w.nii.gz \
        --in-path data_directory/site_A_flair.nii.gz \
@@ -133,7 +133,7 @@ Pretrained fusion model can be downloaded [**here**](TODO).
     The harmonized image and intermediate results will be saved at `output_directory`.
 
 
-### Option 2: Run HACA3 from source after installation
+### Option 2: Run HACA3+ from source after installation
    ```bash
    haca3-test \
    --in-path [PATH-TO-INPUT-SOURCE-IMAGE-1] \
@@ -149,21 +149,21 @@ Pretrained fusion model can be downloaded [**here**](TODO).
 ### All options for inference
 - ```--in-path```: file path to input source image. Multiple ```--in-path``` may be provided if there are multiple 
 source images. See the above example for more details.
-- ```--target-image```: file path to target image. HACA3 will match the contrast of source images to this target image.
-- ```--target-theta```: In HACA3, ```theta``` 
+- ```--target-image```: file path to target image. HACA3+ will match the contrast of source images to this target image.
+- ```--target-theta```: In HACA3+, ```theta``` 
 is a two-dimensional representation of image contrast. Target image contrast can be directly specified by providing 
 a ```theta``` value, e.g., ```--target-theta 0.5 0.5```. Note: either ```--target-image``` or ```--target-image``` must 
 be provided during inference. If both are provided, only ```--target-theta``` will be used.
 - ```--norm-val```: normalization value. 
 - ```--out-path```: file path to harmonized image. 
-- ```--harmonization-model```: pretrained HACA3 weights. Pretrained model weights on can 
+- ```--harmonization-model```: pretrained HACA3+ weights. Pretrained model weights on can 
 be downloaded [here](TODO).
-- ```--fusion-model```: pretrained fusion model weights. HACA3 uses a 3D convolutional network to combine multi-orientation
+- ```--fusion-model```: pretrained fusion model weights. HACA3+ uses a 3D convolutional network to combine multi-orientation
 2D slices into a single 3D volume. Pretrained fusion model can be downloaded [here](TODO).
 - ```--save-intermediate```: if specified, intermediate results will be saved. Default: ```False```. Action: ```store_true```.
 - ```--intermediate-out-dir```: directory to save intermediate results.
-- ```--gpu-id```: integer number specifies which GPU to run HACA3.
-- ```--num-batches```: During inference, HACA3 takes entire 3D MRI volumes as input. This may cause a considerable amount 
+- ```--gpu-id```: integer number specifies which GPU to run HACA3+.
+- ```--num-batches```: During inference, HACA3+ takes entire 3D MRI volumes as input. This may cause a considerable amount 
 GPU memory. For reduced GPU memory consumption, source images maybe divided into smaller batches. 
 However, this may slightly increase the inference time.
 
