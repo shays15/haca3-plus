@@ -89,9 +89,8 @@ This installs the `haca3-plus` package and creates two CLI aliases `haca3-train`
 
 
 ### Pretrained weights
-Pretrained weights of HACA3+ can be downloaded [**here**](TODO). 
+Pretrained weights of HACA3+ and the fusion model can be downloaded from the /models folder. 
 HACA3+ uses a 3D convolutional network to combine multi-orientation 2D slices into a single 3D volume. 
-Pretrained fusion model can be downloaded [**here**](TODO).
 
 ## Usage: Inference
 
@@ -117,16 +116,15 @@ Pretrained fusion model can be downloaded [**here**](TODO).
         ├──site_A_flair.nii.gz
         └──site_B_t1w.nii.gz
     ```
-    You can always retrain HACA3+ using your own datasets. In this example, we choose to use the pretrained HACA3+ weights 
-    `harmonization.pt` and fusion model weights `fusion.pt`. The singularity command to run HACA3+ is:
+    You can always retrain HACA3+ using your own datasets. In this example, we choose to use the pretrained HACA3+ weights. The singularity command to run HACA3+ is:
     ```bash
        singularity exec --nv -e haca3-plus.sif haca3-test \
        --in-path data_directory/site_A_t1w.nii.gz \
        --in-path data_directory/site_A_t2w.nii.gz \
        --in-path data_directory/site_A_flair.nii.gz \
        --target-image data_directory/site_B_t1w.nii.gz \
-       --harmonization-model harmonization.pt \
-       --fusion-model fusion.pt \
+       --harmonization-model path_to_harmonization_weights.pt \
+       --fusion-model path_to_fusion_weights.pt \
        --out-path output_directory/site_A_harmonized_to_site_B_t1w.nii.gz \
        --intermediate-out-dir output_directory
     ```
@@ -156,10 +154,9 @@ a ```theta``` value, e.g., ```--target-theta 0.5 0.5```. Note: either ```--targe
 be provided during inference. If both are provided, only ```--target-theta``` will be used.
 - ```--norm-val```: normalization value. 
 - ```--out-path```: file path to harmonized image. 
-- ```--harmonization-model```: pretrained HACA3+ weights. Pretrained model weights on can 
-be downloaded [here](TODO).
+- ```--harmonization-model```: pretrained HACA3+ weights.
 - ```--fusion-model```: pretrained fusion model weights. HACA3+ uses a 3D convolutional network to combine multi-orientation
-2D slices into a single 3D volume. Pretrained fusion model can be downloaded [here](TODO).
+2D slices into a single 3D volume.
 - ```--save-intermediate```: if specified, intermediate results will be saved. Default: ```False```. Action: ```store_true```.
 - ```--intermediate-out-dir```: directory to save intermediate results.
 - ```--gpu-id```: integer number specifies which GPU to run HACA3+.
