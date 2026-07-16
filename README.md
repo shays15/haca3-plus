@@ -1,6 +1,6 @@
 # 🧠 HACA3+: Harmonizing MR Images Across 100+ Scanners
 
-**Code and pretrained weights are available. Singularity container is under construction.**
+**It is recommended to run HACA3+ using the provided singularity container. Although, code and pretrained weights are also available.**
 
 ### <img src="https://raw.githubusercontent.com/iampavangandhi/iampavangandhi/master/gifs/Hi.gif" width="30">Recent Updates
 - 📄 [Harmonizing MR Images Across 100+ Scanners: Multi-site Validation with Traveling Subjects and Real-world Protocols](https://openreview.net/forum?id=TjqfzvRZWg) accepted for poster presentation at *Medical Imaging with Deep Learning (MIDL) 2026 (Validation Track), Taipei, Taiwan — July 8-10, 2026*.
@@ -69,7 +69,7 @@ Standard neuroimage preprocessing steps are needed before running HACA3. These p
 
 ### Option 1 (recommended): Run HACA3 through singularity image
 In general, no installation of HACA3+ is required with this option. 
-Singularity image of HACA3+ model can be directly downloaded [**here**](TODO) (COMING JUNE 2026).
+Singularity image of HACA3+ model can be directly downloaded [**here**](https://iacl.ece.jhu.edu/~savannah/haca3/haca3-brain-tms_v2.0.1_general.sif).
 
 
 ### Option 2: Install from source using `pip`
@@ -98,13 +98,9 @@ HACA3+ uses a 3D convolutional network to combine multi-orientation 2D slices in
 ### Option 1 (recommended): Run HACA3+ through singularity image
    ```bash
    singularity exec --nv -e haca3-plus.sif haca3-test \
-   --in-path [PATH-TO-INPUT-SOURCE-IMAGE-1] \
-   --in-path [PATH-TO-INPUT-SOURCE-IMAGE-2, IF THERE ARE MULTIPLE SOURCE IMAGES] \
-   --target-image [TARGET-IMAGE] \
-   --harmonization-model [PRETRAINED-HACA3-MODEL] \
-   --fusion-model [PRETRAINED-FUSION-MODEL] \
-   --out-path [PATH-TO-HARMONIZED-IMAGE] \
-   --intermediate-out-dir [DIRECTORY SAVES INTERMEDIATE RESULTS] 
+   --in-paths [PATH-TO-INPUT-SOURCE-IMAGE-1] [PATH-TO-INPUT-SOURCE-IMAGE-2, IF THERE ARE MULTIPLE SOURCE IMAGES] \
+   --target-images [TARGET-IMAGE] [PATH-TO-TARGET-IMAGE-2, IF THERE ARE MULTIPLE TARGET IMAGES]\
+   --out-paths [PATH-TO-HARMONIZED-IMAGE] [PATH-TO-HARMONIZED-IMAGE-2, IF THERE ARE MULTIPLE TARGET IMAGES]\
    ```
 
 - ***Example:***
@@ -120,14 +116,9 @@ HACA3+ uses a 3D convolutional network to combine multi-orientation 2D slices in
     You can always retrain HACA3+ using your own datasets. In this example, we choose to use the pretrained HACA3+ weights. The singularity command to run HACA3+ is:
     ```bash
        singularity exec --nv -e haca3-plus.sif haca3-test \
-       --in-path data_directory/site_A_t1w.nii.gz \
-       --in-path data_directory/site_A_t2w.nii.gz \
-       --in-path data_directory/site_A_flair.nii.gz \
-       --target-image data_directory/site_B_t1w.nii.gz \
-       --harmonization-model path_to_harmonization_weights.pt \
-       --fusion-model path_to_fusion_weights.pt \
-       --out-path output_directory/site_A_harmonized_to_site_B_t1w.nii.gz \
-       --intermediate-out-dir output_directory
+       --in-paths data_directory/site_A_t1w.nii.gz data_directory/site_A_t2w.nii.gz data_directory/site_A_flair.nii.gz \
+       --target-images data_directory/site_B_t1w.nii.gz \
+       --out-paths output_directory/site_A_harmonized_to_site_B_t1w.nii.gz \
     ```
     The harmonized image and intermediate results will be saved at `output_directory`.
 
