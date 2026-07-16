@@ -97,7 +97,7 @@ HACA3+ uses a 3D convolutional network to combine multi-orientation 2D slices in
 
 ### Option 1 (recommended): Run HACA3+ through singularity image
    ```bash
-   singularity exec --nv -e haca3-plus.sif haca3-test \
+   APPTAINERENV_CUDA_VISIBLE_DEVICES=0 singularity run -ec --nv haca3-brain-tms_v2.0.1_general.sif haca3-test \
    --in-paths [PATH-TO-INPUT-SOURCE-IMAGE-1] [PATH-TO-INPUT-SOURCE-IMAGE-2, IF THERE ARE MULTIPLE SOURCE IMAGES] \
    --target-images [TARGET-IMAGE] [PATH-TO-TARGET-IMAGE-2, IF THERE ARE MULTIPLE TARGET IMAGES]\
    --out-paths [PATH-TO-HARMONIZED-IMAGE] [PATH-TO-HARMONIZED-IMAGE-2, IF THERE ARE MULTIPLE TARGET IMAGES]\
