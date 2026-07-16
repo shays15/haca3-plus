@@ -63,6 +63,7 @@ Standard neuroimage preprocessing steps are needed before running HACA3. These p
 - Inhomogeneity correction
 - Super-resolution for 2D acquired scans. This step is optional, but recommended for optimal performance. See [ECLARE](https://github.com/sremedios/eclare) for more details.
 - Registration to MNI space (1mm isotropic resolution). HACA3 assumes a spatial dimension of 192x224x192.
+- Background removal (optional, but encouraged - this step is particularly useful when using multiple source inputs with differing field-of-views and it is used for the attention calculation). 
 
 ## Installation and pretrained weights
 
