@@ -114,14 +114,6 @@ HACA3+ uses a 3D convolutional network to combine multi-orientation 2D slices in
         ├──site_A_flair.nii.gz
         └──site_B_t1w.nii.gz
     ```
-    You can always retrain HACA3+ using your own datasets. In this example, we choose to use the pretrained HACA3+ weights. The singularity command to run HACA3+ is:
-    ```bash
-       singularity exec --nv -e haca3-plus.sif haca3-test \
-       --in-paths data_directory/site_A_t1w.nii.gz data_directory/site_A_t2w.nii.gz data_directory/site_A_flair.nii.gz \
-       --target-images data_directory/site_B_t1w.nii.gz \
-       --out-paths output_directory/site_A_harmonized_to_site_B_t1w.nii.gz \
-    ```
-    The harmonized image and intermediate results will be saved at `output_directory`.
 
 
 ### Option 2: Run HACA3+ from source after installation
