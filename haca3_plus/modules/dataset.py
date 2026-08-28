@@ -327,59 +327,42 @@ class HACA3Dataset(Dataset):
     # ======================================================
     # FIND T1 ANCHORS
     # ======================================================
-
-    def _get_file_paths(
-        self,
-    ):
-
+    def _get_file_paths(self):
+    
         fpaths = []
         site_ids = []
-
-
-        for (
-            site_id,
-            dataset_dir,
-        ) in enumerate(
-            self.dataset_dirs
-        ):
-
-            # --------------------------------------------------
-            # TREAT-MS directories contain the NIfTIs directly.
-            #
-            # Example:
-            #
-            # TREATMS-0100-006_20190912_01-03_
-            # BRAIN-T1-IRFSPGR-3D-SAGITTAL-PRE_...
-            # --------------------------------------------------
-
+    
+        for site_id, dataset_dir in enumerate(self.dataset_dirs):
+    
+            data_dir = (
+                dataset_dir
+                / self.mode
+            )
+    
             t1_paths = sorted(
-                dataset_dir.glob(
+                data_dir.glob(
                     "*BRAIN-T1-*PRE*.nii.gz"
                 )
             )
-
-
+    
             print(
-                f"{dataset_dir}: "
+                f"{data_dir}: "
                 f"found {len(t1_paths)} T1 PRE volumes"
             )
-
-
+    
             fpaths.extend(
                 t1_paths
             )
-
+    
             site_ids.extend(
                 [site_id]
                 * len(t1_paths)
             )
-
-
+    
         return (
             fpaths,
             site_ids,
         )
-
 
     # ======================================================
     # LENGTH
