@@ -551,6 +551,7 @@ class HACA3:
             10 * rec_loss
             + 1e-5 * kld_loss
             + 5e-1 * beta_loss
+            + 5e-2 * cycle_loss
         )
         if is_train:
             self.optimizer.zero_grad()
