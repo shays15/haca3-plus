@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import math
 from scipy.ndimage import label
 import numpy as np
-from .utils import normalize_attention, normalize_and_smooth_attention
+#from .utils import normalize_attention, normalize_and_smooth_attention
 
 
 
