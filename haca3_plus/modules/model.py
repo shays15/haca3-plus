@@ -125,9 +125,27 @@ class HACA3:
         self.writer_path = os.path.join(self.out_dir, self.timestr)
         self.writer = SummaryWriter(self.writer_path)
 
-    def load_dataset(self, dataset_dirs, contrasts, orientations, batch_size, normalization_method='01'):
-        train_dataset = HACA3Dataset(dataset_dirs, contrasts, orientations, 'train', normalization_method)
-        valid_dataset = HACA3Dataset(dataset_dirs, contrasts, orientations, 'valid', normalization_method)
+    def load_dataset(
+        self,
+        dataset_dirs,
+        contrasts,
+        batch_size=1,
+        normalization_method="none",
+        num_workers=0,
+    ):
+        train_dataset = HACA3Dataset(
+            dataset_dirs=dataset_dirs,
+            contrasts=contrasts,
+            mode="train",
+            normalization_method=normalization_method,
+        )
+        
+        self.train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+        )
         self.train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
         self.valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
 
