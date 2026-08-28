@@ -1,11 +1,12 @@
 import os
 from glob import glob
+from pathlib import Path
 
-import torch
-from torch.utils.data.dataset import Dataset
 import numpy as np
-import torchio as tio
 import nibabel as nib
+import torch
+import torchio as tio
+from torch.utils.data.dataset import Dataset
 
 
 # ==========================================================
@@ -19,7 +20,20 @@ contrast_names = [
     "FLAIR",
 ]
 
-expected_shape = (192, 224, 192)
+# Map the HACA3 contrast names to patterns in the RADIFOX /
+# TREAT-MS filenames.
+contrast_patterns = {
+    "T1PRE": "*BRAIN-T1-*PRE*",
+    "T2": "*BRAIN-T2-*",
+    "PD": "*BRAIN-PD-*",
+    "FLAIR": "*BRAIN-FLAIR-*",
+}
+
+expected_shape = (
+    192,
+    224,
+    192,
+)
 
 
 # ==========================================================
@@ -29,15 +43,15 @@ expected_shape = (192, 224, 192)
 transform_dict = {
     tio.RandomMotion(
         degrees=(15, 30),
-        translation=(10, 20)
+        translation=(10, 20),
     ): 0.25,
 
     tio.RandomNoise(
-        std=(0.01, 0.1)
+        std=(0.01, 0.1),
     ): 0.25,
 
     tio.RandomGhosting(
-        num_ghosts=(4, 10)
+        num_ghosts=(4, 10),
     ): 0.25,
 
     tio.RandomBiasField(): 0.25,
@@ -54,10 +68,18 @@ degradation_transform = tio.OneOf(
 
 def get_tensor_from_fpath(
     fpath,
-    normalization_method
+    normalization_method,
 ):
     """
     Load one full 3D NIfTI.
+
+    Parameters
+    ----------
+    fpath
+        Path to NIfTI. Can be None if contrast is missing.
+
+    normalization_method
+        "wm", "01", or other/no normalization.
 
     Returns
     -------
@@ -65,63 +87,79 @@ def get_tensor_from_fpath(
         Shape [1, D, H, W]
 
     exists : int
-        1 if image exists, 0 otherwise
+        1 if image exists, otherwise 0.
     """
 
     # ------------------------------------------------------
     # Missing contrast
     # ------------------------------------------------------
 
-    if not os.path.exists(fpath):
+    if fpath is None:
 
         image = torch.zeros(
             [1, *expected_shape],
-            dtype=torch.float32
+            dtype=torch.float32,
         )
 
-        exists = 0
+        return image, 0
 
-        return image, exists
+
+    fpath = Path(fpath)
+
+
+    if not fpath.exists():
+
+        image = torch.zeros(
+            [1, *expected_shape],
+            dtype=torch.float32,
+        )
+
+        return image, 0
 
 
     # ------------------------------------------------------
-    # Load NIfTI
+    # Load image
     # ------------------------------------------------------
 
     image = nib.load(
-        fpath
+        str(fpath)
     ).get_fdata(
         dtype=np.float32
     )
 
-    image = np.squeeze(image)
+    image = np.squeeze(
+        image
+    )
 
 
     if image.ndim != 3:
+
         raise ValueError(
-            f"Expected 3D image for {fpath}, "
-            f"got shape {image.shape}"
+            f"Expected 3D image for:\n"
+            f"{fpath}\n"
+            f"Got shape {image.shape}"
         )
 
 
     # ------------------------------------------------------
-    # Verify registered dimensions
+    # Verify dimensions
     # ------------------------------------------------------
 
     if image.shape != expected_shape:
+
         raise ValueError(
-            f"Unexpected shape for:\n"
+            f"Unexpected image shape for:\n"
             f"{fpath}\n"
-            f"Expected {expected_shape}, "
-            f"got {image.shape}"
+            f"Expected: {expected_shape}\n"
+            f"Got:      {image.shape}"
         )
 
 
     # ------------------------------------------------------
     # Normalize
     #
-    # Keep the original HACA3 normalization logic for now.
-    # np.percentile works exactly the same on a 3D volume.
+    # This preserves the original HACA3 normalization logic.
+    # np.percentile will flatten the full 3D image.
     # ------------------------------------------------------
 
     if normalization_method == "wm":
@@ -143,7 +181,7 @@ def get_tensor_from_fpath(
         image = np.clip(
             image,
             0.0,
-            5.0
+            5.0,
         )
 
 
@@ -161,27 +199,24 @@ def get_tensor_from_fpath(
         image
     ).unsqueeze(0)
 
-    exists = 1
-
-
-    return image, exists
+    return image, 1
 
 
 # ==========================================================
-# COMMON BRAIN MASK
+# COMMON FOREGROUND MASK
 # ==========================================================
 
 def background_removal(
-    image_dicts
+    image_dicts,
 ):
     """
-    Construct a common foreground mask using only contrasts
-    that actually exist.
+    Construct a common foreground mask from contrasts that
+    actually exist.
 
-    All images:
+    Each image has shape:
         [1,D,H,W]
 
-    mask:
+    The returned mask has shape:
         [1,D,H,W]
     """
 
@@ -193,19 +228,26 @@ def background_removal(
 
 
     if len(existing_images) == 0:
+
         raise RuntimeError(
-            "Subject has no available contrasts."
+            "No available contrasts for this sample."
         )
 
 
-    # Start with all foreground
+    # ------------------------------------------------------
+    # Begin with all foreground
+    # ------------------------------------------------------
+
     mask = torch.ones_like(
         existing_images[0],
-        dtype=torch.bool
+        dtype=torch.bool,
     )
 
 
-    # Intersection of foreground across AVAILABLE contrasts
+    # ------------------------------------------------------
+    # Intersection of foreground across existing contrasts
+    # ------------------------------------------------------
+
     for image in existing_images:
 
         mask = (
@@ -214,7 +256,10 @@ def background_removal(
         )
 
 
-    # Apply same mask to all contrasts
+    # ------------------------------------------------------
+    # Apply common mask
+    # ------------------------------------------------------
+
     for image_dict in image_dicts:
 
         image_dict["image"] = (
@@ -227,7 +272,9 @@ def background_removal(
             * mask
         )
 
-        image_dict["mask"] = mask
+        image_dict["mask"] = (
+            mask
+        )
 
 
     return image_dicts
@@ -242,59 +289,87 @@ class HACA3Dataset(Dataset):
     def __init__(
         self,
         dataset_dirs,
-        contrasts,
+        contrasts=None,
         mode="train",
-        normalization_method="01"
+        normalization_method="01",
     ):
 
         self.mode = mode
 
-        self.dataset_dirs = (
-            dataset_dirs
-        )
+        self.dataset_dirs = [
+            Path(dataset_dir)
+            for dataset_dir in dataset_dirs
+        ]
 
         self.contrasts = (
             contrasts
+            if contrasts is not None
+            else contrast_names
         )
 
         self.normalization_method = (
             normalization_method
         )
 
+
         (
             self.t1_paths,
-            self.site_ids
+            self.site_ids,
         ) = self._get_file_paths()
 
 
+        print(
+            f"HACA3Dataset ({self.mode}): "
+            f"{len(self.t1_paths)} samples"
+        )
+
+
     # ======================================================
-    # FIND SUBJECT / SESSION VOLUMES
+    # FIND T1 ANCHORS
     # ======================================================
 
-    def _get_file_paths(self):
+    def _get_file_paths(
+        self,
+    ):
 
         fpaths = []
         site_ids = []
 
 
-        for site_id, dataset_dir in enumerate(
+        for (
+            site_id,
+            dataset_dir,
+        ) in enumerate(
             self.dataset_dirs
         ):
 
+            # --------------------------------------------------
+            # TREAT-MS directories contain the NIfTIs directly.
+            #
+            # Example:
+            #
+            # TREATMS-0100-006_20190912_01-03_
+            # BRAIN-T1-IRFSPGR-3D-SAGITTAL-PRE_...
+            # --------------------------------------------------
+
             t1_paths = sorted(
-                glob(
-                    os.path.join(
-                        dataset_dir,
-                        self.mode,
-                        "*T1PRE*.nii.gz"
-                    )
+                dataset_dir.glob(
+                    "*BRAIN-T1-*PRE*.nii.gz"
                 )
             )
 
 
-            fpaths += t1_paths
+            print(
+                f"{dataset_dir}: "
+                f"found {len(t1_paths)} T1 PRE volumes"
+            )
 
-            site_ids += (
+
+            fpaths.extend(
+                t1_paths
+            )
+
+            site_ids.extend(
                 [site_id]
                 * len(t1_paths)
             )
@@ -302,7 +377,7 @@ class HACA3Dataset(Dataset):
 
         return (
             fpaths,
-            site_ids
+            site_ids,
         )
 
 
@@ -310,7 +385,9 @@ class HACA3Dataset(Dataset):
     # LENGTH
     # ======================================================
 
-    def __len__(self):
+    def __len__(
+        self,
+    ):
 
         return len(
             self.t1_paths
@@ -318,17 +395,150 @@ class HACA3Dataset(Dataset):
 
 
     # ======================================================
-    # GET ONE SUBJECT / SESSION
+    # FIND ONE CONTRAST
+    # ======================================================
+
+    def _find_contrast(
+        self,
+        t1_path,
+        contrast_name,
+    ):
+        """
+        Find the corresponding contrast for the same
+        subject/session as the T1 anchor.
+
+        Example T1 filename:
+
+        TREATMS-0100-006_20190912_01-03_
+        BRAIN-T1-IRFSPGR-3D-SAGITTAL-PRE_...
+
+        Subject/session prefix becomes:
+
+        TREATMS-0100-006_20190912
+        """
+
+        t1_path = Path(
+            t1_path
+        )
+
+
+        # --------------------------------------------------
+        # Get subject/session prefix
+        # --------------------------------------------------
+
+        parts = (
+            t1_path.name.split("_")
+        )
+
+        if len(parts) < 2:
+
+            raise ValueError(
+                f"Could not extract subject/session "
+                f"from filename:\n"
+                f"{t1_path.name}"
+            )
+
+
+        subj_sess = "_".join(
+            parts[:2]
+        )
+
+
+        # --------------------------------------------------
+        # Get pattern for requested contrast
+        # --------------------------------------------------
+
+        contrast_pattern = (
+            contrast_patterns[
+                contrast_name
+            ]
+        )
+
+
+        pattern = (
+            f"{subj_sess}_"
+            f"{contrast_pattern}"
+            f".nii.gz"
+        )
+
+
+        matches = sorted(
+            t1_path.parent.glob(
+                pattern
+            )
+        )
+
+
+        # --------------------------------------------------
+        # No image
+        # --------------------------------------------------
+
+        if len(matches) == 0:
+
+            return None
+
+
+        # --------------------------------------------------
+        # Exactly one
+        # --------------------------------------------------
+
+        if len(matches) == 1:
+
+            return matches[0]
+
+
+        # --------------------------------------------------
+        # Multiple candidate scans
+        #
+        # Do NOT silently ignore this yet.
+        # For now print them and select the first.
+        # --------------------------------------------------
+
+        print()
+
+        print(
+            f"[WARNING] "
+            f"{subj_sess}: "
+            f"found {len(matches)} "
+            f"{contrast_name} images"
+        )
+
+
+        for match in matches:
+
+            print(
+                f"    {match.name}"
+            )
+
+
+        print(
+            f"    -> temporarily using: "
+            f"{matches[0].name}"
+        )
+
+        print()
+
+
+        return matches[0]
+
+
+    # ======================================================
+    # GET ONE SAMPLE
     # ======================================================
 
     def __getitem__(
         self,
-        idx: int
+        idx: int,
     ):
 
         image_dicts = []
 
-        t1_path = (
+
+        # --------------------------------------------------
+        # Anchor T1
+        # --------------------------------------------------
+
+        t1_path = Path(
             self.t1_paths[idx]
         )
 
@@ -337,47 +547,65 @@ class HACA3Dataset(Dataset):
         )
 
 
+        # --------------------------------------------------
+        # Extract subject/session name
+        # --------------------------------------------------
+
+        parts = (
+            t1_path.name.split("_")
+        )
+
+        subj_sess = "_".join(
+            parts[:2]
+        )
+
+
+        # --------------------------------------------------
+        # Load each requested contrast
+        # --------------------------------------------------
+
         for (
             contrast_id,
-            contrast_name
+            contrast_name,
         ) in enumerate(
-            contrast_names
+            self.contrasts
         ):
 
             # ----------------------------------------------
-            # Find corresponding contrast
+            # Find matching contrast
             # ----------------------------------------------
 
             image_path = (
-                t1_path.replace(
-                    "T1PRE",
-                    contrast_name
+                self._find_contrast(
+                    t1_path,
+                    contrast_name,
                 )
             )
 
 
             # ----------------------------------------------
-            # Load full 3D volume
+            # Load volume
             # ----------------------------------------------
 
-            image, exists = (
-                get_tensor_from_fpath(
-                    image_path,
-                    self.normalization_method
-                )
+            (
+                image,
+                exists,
+            ) = get_tensor_from_fpath(
+                image_path,
+                self.normalization_method,
             )
 
 
             # ----------------------------------------------
-            # Apply 3D degradation
+            # Apply 3D artifact degradation
             #
-            # image is already [C,D,H,W].
-            # TorchIO can operate directly on this.
+            # TorchIO input:
+            # [C,D,H,W]
             # ----------------------------------------------
 
             if (
                 self.mode == "train"
-                and exists
+                and exists == 1
             ):
 
                 image_degrade = (
@@ -394,11 +622,13 @@ class HACA3Dataset(Dataset):
 
 
             # ----------------------------------------------
-            # Store metadata
+            # Store data
             # ----------------------------------------------
 
             image_dict = {
-                "image": image,
+
+                "image":
+                    image,
 
                 "image_degrade":
                     image_degrade,
@@ -409,11 +639,21 @@ class HACA3Dataset(Dataset):
                 "contrast_id":
                     contrast_id,
 
+                "contrast_name":
+                    contrast_name,
+
                 "exists":
                     exists,
 
                 "path":
-                    image_path,
+                    (
+                        str(image_path)
+                        if image_path is not None
+                        else ""
+                    ),
+
+                "subj_sess":
+                    subj_sess,
             }
 
 
@@ -422,9 +662,9 @@ class HACA3Dataset(Dataset):
             )
 
 
-        # ----------------------------------------------
-        # Common foreground
-        # ----------------------------------------------
+        # --------------------------------------------------
+        # Common foreground mask
+        # --------------------------------------------------
 
         image_dicts = (
             background_removal(
