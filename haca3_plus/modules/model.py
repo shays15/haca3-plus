@@ -116,6 +116,7 @@ class HACA3:
             if 'timestr' in self.checkpoint:
                 self.timestr = self.checkpoint['timestr']
         self.start_epoch = self.start_epoch + 1
+        self.scaler = torch.cuda.amp.GradScaler()
 
         self.out_dir = out_dir
         mkdir_p(self.out_dir)
@@ -603,45 +604,141 @@ class HACA3:
             negative_features,
         )
 
-    def calculate_loss(self, rec_image, ref_image, mask, mu, logvar, betas, source_images, available_contrast_id,
-                       is_train=True):
+    def calculate_loss(
+        self,
+        rec_image,
+        ref_image,
+        mask,
+        mu,
+        logvar,
+        betas,
+        source_images,
+        available_contrast_id,
+        is_train=True,
+    ):
         """
-        Calculate losses for HACA3 training and validation.
-
+        Calculate the main HACA3+ losses for full-volume 3D
+        training and validation.
+    
+        Current losses:
+            reconstruction L1
+            KLD
+            beta PatchNCE
+    
+        The original 2D VGG perceptual loss is disabled because
+        VGG16 cannot directly operate on 3D volumes.
+    
+        Cycle consistency is handled separately and is currently
+        disabled while testing batch-size-1 3D training.
         """
-        # 1. reconstruction loss
-        rec_loss = self.l1_loss(rec_image[mask], ref_image[mask]).mean()
+    
+        # ======================================================
+        # 1. RECONSTRUCTION LOSS
+        # ======================================================
+    
+        # Ensure boolean mask
+        mask = mask.bool()
+    
+        rec_loss = self.l1_loss(
+            rec_image[mask],
+            ref_image[mask],
+        ).mean()
+    
+    
+        # ======================================================
+        # 2. PERCEPTUAL LOSS
+        # ======================================================
+        #
+        # Original HACA3+ used a 2D VGG16 perceptual loss.
+        # Do not apply that directly to:
+        #
+        #     [B, C, D, H, W]
+        #
+        # For now this term is disabled.
+        # ======================================================
+    
         perceptual_loss = torch.tensor(
             0.0,
-            device=self.device
+            device=rec_image.device,
         )
-
-        # 2. KLD loss
-        kld_loss = self.kld_loss(mu, logvar).mean()
-
-        # 3. beta contrastive loss
-        query_feature, \
-            positive_feature, \
-            negative_feature = self.calculate_features_for_contrastive_loss(betas, source_images, available_contrast_id)
-        beta_loss = self.contrastive_loss(query_feature, positive_feature.detach(), negative_feature.detach())
-
-        # COMBINE LOSSES
+    
+    
+        # ======================================================
+        # 3. KLD LOSS
+        # ======================================================
+    
+        kld_loss = self.kld_loss(
+            mu,
+            logvar,
+        ).mean()
+    
+    
+        # ======================================================
+        # 4. BETA PATCHNCE LOSS
+        # ======================================================
+    
+        (
+            query_feature,
+            positive_feature,
+            negative_feature,
+        ) = self.calculate_features_for_contrastive_loss(
+            betas,
+            source_images,
+            available_contrast_id,
+        )
+    
+    
+        beta_loss = self.contrastive_loss(
+            query_feature,
+            positive_feature.detach(),
+            negative_feature.detach(),
+        )
+    
+    
+        # ======================================================
+        # 5. TOTAL LOSS
+        # ======================================================
+    
         total_loss = (
-            10 * rec_loss
+            10.0 * rec_loss
             + 1e-5 * kld_loss
             + 5e-1 * beta_loss
-            + 5e-2 * cycle_loss
         )
+    
+    
+        # ======================================================
+        # 6. OPTIMIZATION
+        # ======================================================
+    
         if is_train:
-            self.optimizer.zero_grad()
-            total_loss.backward()
-            self.optimizer.step()
+            self.optimizer.zero_grad(
+                set_to_none=True
+            )
+        
+            self.scaler.scale(
+                total_loss
+            ).backward()
+        
+            self.scaler.step(
+                self.optimizer
+            )
+        
+            self.scaler.update()
+        
             self.scheduler.step()
-        loss = {'rec_loss': rec_loss.item(),
-                'per_loss': perceptual_loss.item(),
-                'kld_loss': kld_loss.item(),
-                'beta_loss': beta_loss.item(),
-                'total_loss': total_loss.item()}
+    
+        # ======================================================
+        # 7. RETURN LOSSES
+        # ======================================================
+    
+        loss = {
+            "rec_loss": rec_loss.item(),
+            "per_loss": perceptual_loss.item(),
+            "kld_loss": kld_loss.item(),
+            "beta_loss": beta_loss.item(),
+            "total_loss": total_loss.item(),
+        }
+    
         return loss
 
     def calculate_cycle_consistency_loss(self, theta_rec, theta_ref, eta_rec, eta_ref, beta_rec, beta_ref,
@@ -690,217 +787,499 @@ class HACA3:
                  'scheduler': self.scheduler.state_dict()}
         torch.save(obj=state, f=file_name)
 
-    def image_to_image_translation(self, batch_id, epoch, image_dicts, train_or_valid):
-        if train_or_valid == 'train':
-            contrast_dropout = True
-            is_train = True
-        else:
-            contrast_dropout = False
-            is_train = False
-
-        source_images = self.prepare_source_images(image_dicts)
-        mask = image_dicts[0]['mask'].to(self.device)
-        masks = torch.stack(
-            [d['mask'] for d in image_dicts],
-            dim=1
-        ).to(self.device)
-
-        # maybe masks = masks.squeeze(2)
-        assert masks.ndim == 5
-        assert masks.shape[1] == len(image_dicts)
-
-        target_image, contrast_id_for_decoding = self.select_available_contrasts(image_dicts)
-        # available_contrast_id: (batch_size, num_contrasts). 1: if available, 0: otherwise.
-        available_contrast_id = torch.stack([d['exists'] for d in image_dicts], dim=-1).to(self.device)
-        # print(f'available_contrast_id in model is: {available_contrast_id.shape}')
-        batch_size = source_images[0].shape[0]
-
-        # ====== 1. INTRA-SITE IMAGE-TO-IMAGE TRANSLATION ======
-        logits, betas = self.calculate_beta(source_images)
-        thetas_source, _, _ = self.calculate_theta(source_images)
-        etas_source = self.calculate_eta(source_images)
-        theta_target, mu_target, logvar_target = self.calculate_theta(target_image)
-        eta_target = self.calculate_eta(target_image)
-        query = torch.cat([theta_target, eta_target], dim=1)
-        keys = [torch.cat([theta, eta], dim=1) for (theta, eta) in zip(thetas_source, etas_source)]
-        if torch.rand((1,)) > 0.2:
-            contrast_id_to_drop = contrast_id_for_decoding
-        else:
-            contrast_id_to_drop = None
-        rec_image, attention, logit_fusion, beta_fusion = self.decode(logits, theta_target, query, keys,
-                                                                      available_contrast_id,
-                                                                      masks,
-                                                                      contrast_dropout=contrast_dropout,
-                                                                      contrast_id_to_drop=contrast_id_to_drop)
-        loss = self.calculate_loss(rec_image, target_image, mask, mu_target, logvar_target,
-                                   betas, source_images, available_contrast_id, is_train=is_train)
-
-        # ====== 2. SAVE IMAGES OF INTRA-SITE I2I ======
-        if batch_id % 100 == 1:
-            file_name = os.path.join(self.out_dir, f'training_results_{self.timestr}',
-                                     f'{train_or_valid}_epoch{str(epoch).zfill(3)}_batch{str(batch_id).zfill(4)}'
-                                     '_intra-site.nii.gz')
-            save_image(source_images + [rec_image] + [target_image] + betas + [beta_fusion], file_name)
-
-        # ====== 3. INTER-SITE IMAGE-TO-IMAGE TRANSLATION ======
-        if epoch > 1:
-            random_index = torch.randperm(batch_size)
-            target_image_shuffled = target_image[random_index, ...]
-            logits, betas = self.calculate_beta(source_images)
-            thetas_source, _, _ = self.calculate_theta(source_images)
-            etas_source = self.calculate_eta(source_images)
-            theta_target, mu_target, logvar_target = self.calculate_theta(target_image_shuffled)
-            eta_target = self.calculate_eta(target_image_shuffled)
-            query = torch.cat([theta_target, eta_target], dim=1)
-            keys = [torch.cat([theta, eta], dim=1) for (theta, eta) in zip(thetas_source, etas_source)]
-            rec_image, attention, logit_fusion, beta_fusion = self.decode(logits, theta_target, query, keys,
-                                                                          available_contrast_id, masks,
-                                                                          contrast_dropout=True)
-            theta_recon, _ = self.theta_encoder(rec_image)
-            eta_recon = self.eta_encoder(rec_image)
-            beta_recon = self.channel_aggregation(reparameterize_logit(self.beta_encoder(rec_image)))
-            cycle_loss = self.calculate_cycle_consistency_loss(theta_recon, theta_target.detach(),
-                                                               eta_recon, eta_target.detach(),
-                                                               beta_recon, beta_fusion.detach(),
-                                                               is_train=is_train)
-
-        # ====== 4. SAVE IMAGES FOR INTER-SITE I2I ======
-        if epoch > 1 and batch_id % 100 == 1:
-            file_name = os.path.join(self.out_dir, f'training_results_{self.timestr}',
-                                     f'{train_or_valid}_epoch{str(epoch).zfill(3)}_batch{str(batch_id).zfill(4)}'
-                                     '_inter-site.nii.gz')
-            save_image(source_images + [rec_image] + [target_image_shuffled] + betas + [beta_fusion], file_name)
-
-        # ====== 5. VISUALIZE LOSSES FOR INTRA- AND INTER-SITE I2I ======
-        if epoch > 1:
-            if is_train:
-                self.train_loader.set_description((f'epoch: {epoch}; '
-                                                   f'rec: {loss["rec_loss"]:.3f}; '
-                                                   f'per: {loss["per_loss"]:.3f}; '
-                                                   f'kld: {loss["kld_loss"]:.3f}; '
-                                                   f'beta: {loss["beta_loss"]:.3f}; '
-                                                   f'theta_c: {cycle_loss["theta_cyc"]:.3f}; '
-                                                   f'eta_c: {cycle_loss["eta_cyc"]:.3f}; '
-                                                   f'beta_c: {cycle_loss["beta_cyc"]:.3f}; '))
-            else:
-                self.valid_loader.set_description((f'epoch: {epoch}; '
-                                                   f'rec: {loss["rec_loss"]:.3f}; '
-                                                   f'per: {loss["per_loss"]:.3f}; '
-                                                   f'kld: {loss["kld_loss"]:.3f}; '
-                                                   f'beta: {loss["beta_loss"]:.3f}; '
-                                                   f'theta_c: {cycle_loss["theta_cyc"]:.3f}; '
-                                                   f'eta_c: {cycle_loss["eta_cyc"]:.3f}; '
-                                                   f'beta_c: {cycle_loss["beta_cyc"]:.3f}; '))
-            self.write_tensorboard(loss, epoch, batch_id, train_or_valid, cycle_loss)
-        else:
-            if is_train:
-                self.train_loader.set_description((f'epoch: {epoch}; '
-                                                   f'rec: {loss["rec_loss"]:.3f}; '
-                                                   f'per: {loss["per_loss"]:.3f}; '
-                                                   f'kld: {loss["kld_loss"]:.3f}; '
-                                                   f'beta: {loss["beta_loss"]:.3f}; '))
-            else:
-                self.valid_loader.set_description((f'epoch: {epoch}; '
-                                                   f'rec: {loss["rec_loss"]:.3f}; '
-                                                   f'per: {loss["per_loss"]:.3f}; '
-                                                   f'kld: {loss["kld_loss"]:.3f}; '
-                                                   f'beta: {loss["beta_loss"]:.3f}; '))
-            self.write_tensorboard(loss, epoch, batch_id, train_or_valid)
-
-        # ====== 6. SAVE TRAINED MODELS ======
-        if batch_id % 2000 == 0 and is_train:
-            file_name = os.path.join(self.out_dir, f'training_models_{self.timestr}',
-                                     f'epoch{str(epoch).zfill(3)}_batch{str(batch_id).zfill(4)}_model.pt')
-            self.save_model(epoch, file_name)
-
-    def train(
+    def image_to_image_translation(
         self,
-        epochs,
+        batch_id,
+        epoch,
+        image_dicts,
+        train_or_valid,
     ):
         """
-        Train full-volume 3D HACA3+.
+        One full-volume 3D HACA3+ intra-site training/validation step.
+    
+        Each image:
+            [B, 1, D, H, W]
+    
+        masks:
+            [B, N, D, H, W]
+    
+        available_contrast_id:
+            [B, N]
         """
     
-        for epoch in range(
-            self.start_epoch,
-            epochs + 1,
+        # ======================================================
+        # TRAIN / VALID SETTINGS
+        # ======================================================
+    
+        is_train = (
+            train_or_valid == "train"
+        )
+    
+        contrast_dropout = (
+            True if is_train else False
+        )
+    
+    
+        # ======================================================
+        # PREPARE SOURCE IMAGES
+        # ======================================================
+    
+        source_images = (
+            self.prepare_source_images(
+                image_dicts
+            )
+        )
+    
+        # Move source images to GPU explicitly in case
+        # prepare_source_images does not already do this.
+        source_images = [
+            image.to(
+                self.device,
+                non_blocking=True,
+            )
+            for image in source_images
+        ]
+    
+    
+        # ======================================================
+        # MASKS
+        # ======================================================
+    
+        # Target/reconstruction mask:
+        # [B,1,D,H,W]
+        mask = (
+            image_dicts[0]["mask"]
+            .to(
+                self.device,
+                non_blocking=True,
+            )
+        )
+    
+    
+        # Each DataLoader mask:
+        # [B,1,D,H,W]
+        #
+        # Remove image-channel dimension before stacking:
+        #
+        # [B,D,H,W] x N
+        #       ->
+        # [B,N,D,H,W]
+        masks = torch.stack(
+            [
+                d["mask"].squeeze(1)
+                for d in image_dicts
+            ],
+            dim=1,
+        ).to(
+            self.device,
+            non_blocking=True,
+        )
+    
+    
+        assert masks.ndim == 5, (
+            f"Expected masks [B,N,D,H,W], "
+            f"got {masks.shape}"
+        )
+    
+        assert masks.shape[1] == len(
+            image_dicts
+        )
+    
+    
+        # ======================================================
+        # SELECT TARGET CONTRAST
+        # ======================================================
+    
+        (
+            target_image,
+            contrast_id_for_decoding,
+        ) = self.select_available_contrasts(
+            image_dicts
+        )
+    
+        target_image = target_image.to(
+            self.device,
+            non_blocking=True,
+        )
+    
+    
+        # ======================================================
+        # AVAILABLE CONTRASTS
+        #
+        # Example:
+        # T1 / T2 / PD / FLAIR
+        #  1    1    0     1
+        #
+        # shape: [B,N]
+        # ======================================================
+    
+        available_contrast_id = torch.stack(
+            [
+                d["exists"]
+                for d in image_dicts
+            ],
+            dim=1,
+        ).to(
+            self.device,
+            non_blocking=True,
+        )
+    
+    
+        assert available_contrast_id.ndim == 2
+    
+        assert available_contrast_id.shape[1] == len(
+            image_dicts
+        )
+    
+    
+        # ======================================================
+        # FORWARD PASS
+        # ======================================================
+    
+        with torch.cuda.amp.autocast():
+    
+            # ==================================================
+            # BETA
+            # ==================================================
+    
+            logits, betas = (
+                self.calculate_beta(
+                    source_images
+                )
+            )
+    
+    
+            # ==================================================
+            # SOURCE THETA / ETA
+            # ==================================================
+    
+            (
+                thetas_source,
+                _,
+                _,
+            ) = self.calculate_theta(
+                source_images
+            )
+    
+            etas_source = (
+                self.calculate_eta(
+                    source_images
+                )
+            )
+    
+    
+            # ==================================================
+            # TARGET THETA / ETA
+            # ==================================================
+    
+            (
+                theta_target,
+                mu_target,
+                logvar_target,
+            ) = self.calculate_theta(
+                target_image
+            )
+    
+            eta_target = (
+                self.calculate_eta(
+                    target_image
+                )
+            )
+    
+    
+            # ==================================================
+            # ATTENTION QUERY / KEYS
+            # ==================================================
+    
+            query = torch.cat(
+                [
+                    theta_target,
+                    eta_target,
+                ],
+                dim=1,
+            )
+    
+    
+            keys = [
+                torch.cat(
+                    [
+                        theta,
+                        eta,
+                    ],
+                    dim=1,
+                )
+                for (
+                    theta,
+                    eta,
+                ) in zip(
+                    thetas_source,
+                    etas_source,
+                )
+            ]
+    
+    
+            # ==================================================
+            # CONTRAST DROPOUT
+            # ==================================================
+    
+            if (
+                is_train
+                and torch.rand(
+                    1
+                ).item() > 0.2
+            ):
+    
+                contrast_id_to_drop = (
+                    contrast_id_for_decoding
+                )
+    
+            else:
+    
+                contrast_id_to_drop = None
+    
+    
+            # ==================================================
+            # DECODE FULL 3D VOLUME
+            # ==================================================
+    
+            (
+                rec_image,
+                attention,
+                logit_fusion,
+                beta_fusion,
+            ) = self.decode(
+                logits,
+                theta_target,
+                query,
+                keys,
+                available_contrast_id,
+                masks,
+                contrast_dropout=contrast_dropout,
+                contrast_id_to_drop=contrast_id_to_drop,
+            )
+    
+    
+            # ==================================================
+            # LOSS
+            # ==================================================
+    
+            loss = self.calculate_loss(
+                rec_image,
+                target_image,
+                mask,
+                mu_target,
+                logvar_target,
+                betas,
+                source_images,
+                available_contrast_id,
+                is_train=is_train,
+            )
+    
+    
+        # ======================================================
+        # SAVE TRAINING EXAMPLES
+        # ======================================================
+    
+        if (
+            batch_id % 100 == 1
         ):
     
-            print()
-            print(
-                f"========== EPOCH {epoch}/{epochs} =========="
+            file_name = os.path.join(
+                self.out_dir,
+                f"training_results_{self.timestr}",
+                (
+                    f"{train_or_valid}_"
+                    f"epoch{str(epoch).zfill(3)}_"
+                    f"batch{str(batch_id).zfill(4)}_"
+                    f"intra-site.nii.gz"
+                ),
+            )
+    
+            save_image(
+                source_images
+                + [rec_image]
+                + [target_image]
+                + betas
+                + [beta_fusion],
+                file_name,
             )
     
     
-            # ==================================================
-            # 1. TRAINING
-            # ==================================================
+        # ======================================================
+        # INTER-SITE CYCLE TRAINING
+        # ======================================================
+        #
+        # IMPORTANT:
+        #
+        # Old implementation used:
+        #
+        #     torch.randperm(batch_size)
+        #
+        # to shuffle target images within the batch.
+        #
+        # With 3D training batch_size = 1:
+        #
+        #     randperm(1) == [0]
+        #
+        # so the "shuffled" image would actually be the SAME
+        # subject.
+        #
+        # Therefore inter-site cycle training is intentionally
+        # disabled here until we add an independent target
+        # sampler.
+        # ======================================================
     
-            self.beta_encoder.train()
-            self.theta_encoder.train()
-    
-            # Eta remains fixed/pretrained
-            self.eta_encoder.eval()
-    
-            self.decoder.train()
-            self.attention_module.train()
-            self.patchifier.train()
+        cycle_loss = None
     
     
-            train_iterator = tqdm(
-                self.train_loader,
-                desc=f"Train {epoch}/{epochs}",
+        # ======================================================
+        # TENSORBOARD
+        # ======================================================
+    
+        self.write_tensorboard(
+            loss,
+            epoch,
+            batch_id,
+            train_or_valid,
+        )
+    
+    
+        # ======================================================
+        # SAVE MODEL
+        # ======================================================
+    
+        if (
+            batch_id % 2000 == 0
+            and is_train
+        ):
+    
+            file_name = os.path.join(
+                self.out_dir,
+                f"training_models_{self.timestr}",
+                (
+                    f"epoch{str(epoch).zfill(3)}_"
+                    f"batch{str(batch_id).zfill(4)}_"
+                    f"model.pt"
+                ),
+            )
+    
+            self.save_model(
+                epoch,
+                file_name,
             )
     
     
+        # ======================================================
+        # RETURN LOSSES FOR TQDM
+        # ======================================================
+    
+        return loss
+
+def train(
+    self,
+    epochs,
+):
+
+    for epoch in range(
+        self.start_epoch,
+        epochs + 1,
+    ):
+
+        print()
+        print(
+            f"========== EPOCH {epoch}/{epochs} =========="
+        )
+
+
+        # ==================================================
+        # TRAINING
+        # ==================================================
+
+        self.beta_encoder.train()
+        self.theta_encoder.train()
+
+        # Eta stays frozen
+        self.eta_encoder.eval()
+
+        self.decoder.train()
+        self.attention_module.train()
+        self.patchifier.train()
+
+
+        train_iterator = tqdm(
+            self.train_loader,
+            desc=f"Train {epoch}/{epochs}",
+        )
+
+
+        for (
+            batch_id,
+            image_dicts,
+        ) in enumerate(
+            train_iterator
+        ):
+
+            loss = self.image_to_image_translation(
+                batch_id,
+                epoch,
+                image_dicts,
+                train_or_valid="train",
+            )
+
+
+            train_iterator.set_description(
+                (
+                    f"Train {epoch}/{epochs} | "
+                    f"rec {loss['rec_loss']:.3f} | "
+                    f"kld {loss['kld_loss']:.3f} | "
+                    f"beta {loss['beta_loss']:.3f}"
+                )
+            )
+
+
+        # ==================================================
+        # VALIDATION
+        # ==================================================
+
+        self.beta_encoder.eval()
+        self.theta_encoder.eval()
+        self.eta_encoder.eval()
+        self.decoder.eval()
+        self.attention_module.eval()
+        self.patchifier.eval()
+
+
+        valid_iterator = tqdm(
+            self.valid_loader,
+            desc=f"Valid {epoch}/{epochs}",
+        )
+
+
+        with torch.no_grad():
+
             for (
                 batch_id,
                 image_dicts,
             ) in enumerate(
-                train_iterator
+                valid_iterator
             ):
-    
-                self.image_to_image_translation(
+
+                loss = self.image_to_image_translation(
                     batch_id,
                     epoch,
                     image_dicts,
-                    train_or_valid="train",
+                    train_or_valid="valid",
                 )
-    
-    
-            # ==================================================
-            # 2. VALIDATION
-            # ==================================================
-    
-            self.beta_encoder.eval()
-            self.theta_encoder.eval()
-            self.eta_encoder.eval()
-            self.decoder.eval()
-            self.attention_module.eval()
-            self.patchifier.eval()
-    
-    
-            valid_iterator = tqdm(
-                self.valid_loader,
-                desc=f"Valid {epoch}/{epochs}",
-            )
-    
-    
-            with torch.no_grad():
-    
-                for (
-                    batch_id,
-                    image_dicts,
-                ) in enumerate(
-                    valid_iterator
-                ):
-    
-                    self.image_to_image_translation(
-                        batch_id,
-                        epoch,
-                        image_dicts,
-                        train_or_valid="valid",
+
+
+                valid_iterator.set_description(
+                    (
+                        f"Valid {epoch}/{epochs} | "
+                        f"rec {loss['rec_loss']:.3f} | "
+                        f"kld {loss['kld_loss']:.3f} | "
+                        f"beta {loss['beta_loss']:.3f}"
                     )
+                )
 
     def harmonize(self, source_images, target_images, target_theta, target_eta, out_paths,
                   recon_orientation, norm_vals, header=None, num_batches=4, save_intermediate=False, intermediate_out_dir=None):
