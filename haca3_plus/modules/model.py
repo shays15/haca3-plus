@@ -1081,7 +1081,7 @@ class HACA3:
         # ======================================================
     
         if (
-            batch_id % 1 == 1
+            batch_id > 0
         ):
     
             file_name = os.path.join(
