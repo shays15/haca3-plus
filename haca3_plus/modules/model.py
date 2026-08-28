@@ -498,7 +498,7 @@ class HACA3:
         """
         # 1. reconstruction loss
         rec_loss = self.l1_loss(rec_image[mask], ref_image[mask]).mean()
-       perceptual_loss = torch.tensor(
+        perceptual_loss = torch.tensor(
             0.0,
             device=self.device
         )
@@ -513,7 +513,7 @@ class HACA3:
         beta_loss = self.contrastive_loss(query_feature, positive_feature.detach(), negative_feature.detach())
 
         # COMBINE LOSSES
-       total_loss = (
+        total_loss = (
             10 * rec_loss
             + 1e-5 * kld_loss
             + 5e-1 * beta_loss
