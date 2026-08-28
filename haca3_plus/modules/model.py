@@ -15,8 +15,13 @@ from torch.cuda.amp import autocast
 
 from .utils import *
 from .dataset import HACA3Dataset
-from .network import UNet, ThetaEncoder, EtaEncoder, Patchifier, AttentionModule, FusionNet
-
+from .network import (
+    UNet3d,
+    ThetaEncoder3d,
+    EtaEncoder3d,
+    Patchifier3d,
+    AttentionModule3d,
+)
 
 class HACA3:
     def __init__(self, beta_dim, theta_dim, eta_dim, pretrained_haca3=None, pretrained_eta_encoder=None, gpu_id=0):
@@ -36,12 +41,39 @@ class HACA3:
         self.l1_loss, self.kld_loss, self.contrastive_loss, self.perceptual_loss = None, None, None, None
 
         # define networks
-        self.beta_encoder = UNet(in_ch=1, out_ch=self.beta_dim, base_ch=8, final_act='none')
-        self.theta_encoder = ThetaEncoder(in_ch=1, out_ch=self.theta_dim)
-        self.eta_encoder = EtaEncoder(in_ch=1, out_ch=self.eta_dim)
-        self.attention_module = AttentionModule(self.theta_dim + self.eta_dim, v_ch=self.beta_dim)
-        self.decoder = UNet(in_ch=1 + self.theta_dim, out_ch=1, base_ch=16, final_act='relu')
-        self.patchifier = Patchifier(in_ch=1, out_ch=128)
+        self.beta_encoder = UNet3d(
+            in_ch=1,
+            out_ch=self.beta_dim,
+            base_ch=8,
+            final_act='none'
+        )
+        
+        self.theta_encoder = ThetaEncoder3d(
+            in_ch=1,
+            out_ch=self.theta_dim
+        )
+        
+        self.eta_encoder = EtaEncoder3d(
+            in_ch=1,
+            out_ch=self.eta_dim
+        )
+        
+        self.attention_module = AttentionModule3d(
+            self.theta_dim + self.eta_dim,
+            v_ch=self.beta_dim
+        )
+        
+        self.decoder = UNet3d(
+            in_ch=1 + self.theta_dim,
+            out_ch=1,
+            base_ch=8,   # start with 8
+            final_act='relu'
+        )
+        
+        self.patchifier = Patchifier3d(
+            in_ch=1,
+            out_ch=128
+        )
 
         if pretrained_eta_encoder is not None:
             checkpoint_eta_encoder = torch.load(pretrained_eta_encoder, map_location=self.device)
@@ -148,22 +180,39 @@ class HACA3:
 
     def channel_aggregation(self, beta_onehot_encode):
         """
-        Combine multi-channel one-hot encoded beta into one channel (label-encoding).
-
-        ===INPUTS===
-        * beta_onehot_encode: torch.Tensor (batch_size, self.beta_dim, image_dim, image_dim)
-            One-hot encoded beta variable. At each pixel location, only one channel will take value of 1,
-            and other channels will be 0.
-        ===OUTPUTS===
-        * beta_label_encode: torch.Tensor (batch_size, 1, image_dim, image_dim)
-            The intensity value of each pixel will be determined by the channel index with value of 1.
+        beta_onehot_encode:
+            [B, beta_dim, D, H, W]
+    
+        returns:
+            [B, 1, D, H, W]
         """
-        batch_size = beta_onehot_encode.shape[0]
-        image_dim = beta_onehot_encode.shape[3]
-        value_tensor = (torch.arange(0, self.beta_dim) * 1.0).to(self.device)
-        value_tensor = value_tensor.view(1, self.beta_dim, 1, 1).repeat(batch_size, 1, image_dim, image_dim)
-        beta_label_encode = beta_onehot_encode * value_tensor.detach()
-        return beta_label_encode.sum(1, keepdim=True) / self.beta_dim
+    
+        value_tensor = torch.arange(
+            self.beta_dim,
+            device=beta_onehot_encode.device,
+            dtype=beta_onehot_encode.dtype
+        )
+    
+        value_tensor = value_tensor.view(
+            1,
+            self.beta_dim,
+            1,
+            1,
+            1
+        )
+    
+        beta_label_encode = (
+            beta_onehot_encode
+            * value_tensor
+        )
+    
+        return (
+            beta_label_encode.sum(
+                dim=1,
+                keepdim=True
+            )
+            / self.beta_dim
+        )
 
     def select_available_contrasts(self, image_dicts):
         """
@@ -194,61 +243,156 @@ class HACA3:
         selected_contrast_id[unique_subject_ids, selected_contrast_ids, ...] = 1.0
         return target_image, selected_contrast_id
 
-    def decode(self, logits, target_theta, query, keys, available_contrast_id, mask, contrast_dropout=False,
-               contrast_id_to_drop=None):
+    def decode(
+        self,
+        logits,
+        target_theta,
+        query,
+        keys,
+        available_contrast_id,
+        mask=None,
+        contrast_dropout=False,
+        contrast_id_to_drop=None,
+    ):
         """
-        HACA3 decoding.
-
-        ===INPUTS===
-        * logits: list (num_contrasts, )
-            Encoded logit of each source image.
-            Each element has shape (batch_size, self.beta_dim, image_dim, image_dim).
-        * target_theta: torch.Tensor (batch_size, self.theta_dim, 1, 1)
-            theta values of target images used for decoding.
-        * query: torch.Tensor (batch_size, self.theta_dim+self.eta_dim, 1, 1)
-            query variable. Concatenation of "target_theta" and "target_eta".
-        * keys: list (num_contrasts, )
-            keys variable. Each element has shape (batch_size, self.theta_dim+self.eta_dim)
-        * available_contrast_id: torch.Tensor (batch_size, num_contrasts)
-            Indicates which contrasts are available. 1: if available, 0: if unavailable.
-        * contrast_dropout: bool
-            Indicates if available contrasts will be randomly dropped out.
-
-        ===OUTPUTS===
-        * rec_image: torch.Tensor (batch_size, 1, image_dim, image_dim)
-            Synthetic image after decoding.
-        * attention: torch.Tensor (batch_size, num_contrasts)
-            Learned attention of each source image contrast.
-        * logit_fusion: torch.Tensor (batch_size, self.beta_dim, image_dim, image_dim)
-            Optimal logit after fusion.
-        * beta_fusion: torch.Tensor (batch_size, self.beta_dim, image_dim, image_dim)
-            Optimal beta after fusion. beta_fusion = reparameterize_logit(logit_fusion).
-        * attention_map: torch.Tensor (batch_size, num_contrasts)
-            Learned attention map of each source image contrast.
+        logits:
+            list of N tensors:
+            [B, beta_dim, D, H, W]
+    
+        target_theta:
+            [B, theta_dim]
+    
+        query:
+            [B, theta_dim + eta_dim]
+    
+        keys:
+            list of N tensors:
+            each [B, theta_dim + eta_dim]
+    
+        available_contrast_id:
+            [B, N]
+    
+        mask:
+            [B, N, D, H, W]
         """
-        num_contrasts = len(logits)
-        batch_size = logits[0].shape[0]
-        image_dim = logits[0].shape[-1]
-
-        # logits_combined: (batch_size, self.beta_dim, num_contrasts, image_dim * image_dim)
-        logits_combined = torch.stack(logits, dim=-1).permute(0, 1, 4, 2, 3)
-        logits_combined = logits_combined.view(batch_size, self.beta_dim, num_contrasts, image_dim * image_dim)
-
-        # value: (batch_size, self.beta_dim, image_dim*image_dim, num_contrasts)
-        v = logits_combined.permute(0, 1, 3, 2)
-        # key: (batch_size, self.theta_dim+self.eta_dim, 1, num_contrasts)
-        k = torch.cat(keys, dim=-1)
-        # query: (batch_size, self.theta_dim+self.eta_dim, 1)
-        q = query.view(batch_size, self.theta_dim + self.eta_dim, 1)
-
+    
+        # --------------------------------
+        # Stack beta logits
+        # --------------------------------
+    
+        # [B, N, beta_dim, D, H, W]
+        v = torch.stack(
+            logits,
+            dim=1
+        )
+    
+        # --------------------------------
+        # Stack source keys
+        # --------------------------------
+    
+        # list N × [B,4]
+        #
+        # ->
+        #
+        # [B,N,4]
+    
+        k = torch.stack(
+            keys,
+            dim=1
+        )
+    
+        # q already:
+        # [B,4]
+        q = query
+    
+        # --------------------------------
+        # Contrast dropout
+        # --------------------------------
+    
         if contrast_dropout:
-            available_contrast_id = dropout_contrasts(available_contrast_id, contrast_id_to_drop)
-        logit_fusion, attention = self.attention_module(q, k, v, mask, modality_dropout=1 - available_contrast_id,
-                                                        temperature=10.0)
-        beta_fusion = self.channel_aggregation(reparameterize_logit(logit_fusion))
-        combined_map = torch.cat([beta_fusion, target_theta.repeat(1, 1, image_dim, image_dim)], dim=1)
-        rec_image = self.decoder(combined_map)# * mask
-        return rec_image, attention, logit_fusion, beta_fusion
+    
+            available_contrast_id = dropout_contrasts(
+                available_contrast_id,
+                contrast_id_to_drop
+            )
+    
+        # --------------------------------
+        # Attention
+        # --------------------------------
+    
+        logit_fusion, attention = self.attention_module(
+            q,
+            k,
+            v,
+            mask,
+            modality_dropout=1 - available_contrast_id,
+            temperature=10.0
+        )
+    
+        # logit_fusion:
+        # [B, beta_dim, D, H, W]
+    
+        # attention:
+        # [B, N, D, H, W]
+    
+        # --------------------------------
+        # Beta
+        # --------------------------------
+    
+        beta_fusion = self.channel_aggregation(
+            reparameterize_logit(
+                logit_fusion
+            )
+        )
+    
+        # [B,1,D,H,W]
+    
+        # --------------------------------
+        # Broadcast target theta
+        # --------------------------------
+    
+        B, _, D, H, W = beta_fusion.shape
+    
+        target_theta_map = target_theta[
+            :,
+            :,
+            None,
+            None,
+            None
+        ].expand(
+            -1,
+            -1,
+            D,
+            H,
+            W
+        )
+    
+        # [B,theta_dim,D,H,W]
+    
+        # --------------------------------
+        # Decoder
+        # --------------------------------
+    
+        combined_map = torch.cat(
+            [
+                beta_fusion,
+                target_theta_map
+            ],
+            dim=1
+        )
+    
+        # [B, 1 + theta_dim, D,H,W]
+    
+        rec_image = self.decoder(
+            combined_map
+        )
+    
+        return (
+            rec_image,
+            attention,
+            logit_fusion,
+            beta_fusion
+        )
 
     def calculate_features_for_contrastive_loss(self, betas, source_images, available_contrast_id):
         """
@@ -274,18 +418,56 @@ class HACA3:
             Number of negative patches does not necessarily equal to "num_query_patches" or "num_positive_patches".
         """
         batch_size = betas[0].shape[0]
-        betas_stack = torch.stack(betas, dim=-1)
-        source_images_stack = torch.stack(source_images, dim=-1)
+        betas_stack = torch.stack(
+            betas,
+            dim=1
+        )
+        
+        source_images_stack = torch.stack(
+            source_images,
+            dim=1
+        )
+
+        # betas_stack:
+        # [B,N,1,D,H,W]
+        
+        # source_images_stack:
+        # [B,N,1,D,H,W]
+        
         query_contrast_ids, positive_contrast_ids = [], []
         for subject_id in range(batch_size):
             contrast_id_tmp = random.sample(set(available_contrast_id[subject_id].nonzero(as_tuple=True)[0]), 2)
             query_contrast_ids.append(contrast_id_tmp[0])
             positive_contrast_ids.append(contrast_id_tmp[1])
-        query_example = torch.cat([betas_stack[[subject_id], :, :, :, query_contrast_ids[subject_id]]
-                                   for subject_id in range(batch_size)], dim=0)
-        query_feature = self.patchifier(query_example).view(batch_size, 128, -1)
-        positive_example = torch.cat([betas_stack[[subject_id], :, :, :, positive_contrast_ids[subject_id]]
-                                      for subject_id in range(batch_size)], dim=0)
+        query_example = torch.cat(
+            [
+                betas_stack[
+                    subject_id,
+                    query_contrast_ids[subject_id]
+                ].unsqueeze(0)
+                for subject_id in range(batch_size)
+            ],
+            dim=0
+        )
+        # [B,1,D,H,W]
+        
+        query_feature = self.patchifier(
+            query_example
+        ).flatten(start_dim=2)
+        # [B,128,252] (6x7x6=252)
+        
+        positive_example = torch.cat(
+            [
+                betas_stack[
+                    subject_id,
+                    positive_contrast_ids[subject_id]
+                ].unsqueeze(0)
+                for subject_id in range(batch_size)
+            ],
+            dim=0
+        )
+        # [B,128,6,7,6]
+        
         positive_feature = self.patchifier(positive_example).view(batch_size, 128, -1)
         num_positive_patches = positive_feature.shape[-1]
         negative_feature = torch.cat([
@@ -316,7 +498,10 @@ class HACA3:
         """
         # 1. reconstruction loss
         rec_loss = self.l1_loss(rec_image[mask], ref_image[mask]).mean()
-        perceptual_loss = self.perceptual_loss(rec_image, ref_image).mean()
+       perceptual_loss = torch.tensor(
+            0.0,
+            device=self.device
+        )
 
         # 2. KLD loss
         kld_loss = self.kld_loss(mu, logvar).mean()
@@ -328,7 +513,11 @@ class HACA3:
         beta_loss = self.contrastive_loss(query_feature, positive_feature.detach(), negative_feature.detach())
 
         # COMBINE LOSSES
-        total_loss = 10 * rec_loss + 5e-1 * perceptual_loss + 1e-5 * kld_loss + 5e-1 * beta_loss
+       total_loss = (
+            10 * rec_loss
+            + 1e-5 * kld_loss
+            + 5e-1 * beta_loss
+        )
         if is_train:
             self.optimizer.zero_grad()
             total_loss.backward()
@@ -397,12 +586,14 @@ class HACA3:
 
         source_images = self.prepare_source_images(image_dicts)
         mask = image_dicts[0]['mask'].to(self.device)
-        masks = torch.stack([d['mask'] for d in image_dicts], dim=-1).to(self.device)
-        # print(f'Mask in model is: {mask.shape}')
-        # print(f'Length of image_dicts[0] is: {len(image_dicts[0])}')
-        # print(f'Length of image_dicts is: {len(image_dicts)}')
-        # print(f'Keys in image_dicts[0] are: {list(image_dicts[0].keys())}')
+        masks = torch.stack(
+            [d['mask'] for d in image_dicts],
+            dim=1
+        ).to(self.device)
 
+        # maybe masks = masks.squeeze(2)
+        assert masks.ndim == 5
+        assert masks.shape[1] == len(image_dicts)
 
         target_image, contrast_id_for_decoding = self.select_available_contrasts(image_dicts)
         # available_contrast_id: (batch_size, num_contrasts). 1: if available, 0: otherwise.
