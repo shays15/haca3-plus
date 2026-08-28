@@ -499,7 +499,7 @@ class AttentionModule3d(nn.Module):
         if modality_dropout is not None:
             scores = scores.masked_fill(
                 modality_dropout.bool(),
-                -1e9
+                torch.finfo(scores.dtype).min
             )
 
         attention = (
