@@ -1080,29 +1080,29 @@ class HACA3:
         # SAVE TRAINING EXAMPLES
         # ======================================================
     
-        # if (
-        #     batch_id % 100 == 1
-        # ):
+        if (
+            batch_id % 1 == 1
+        ):
     
-        #     file_name = os.path.join(
-        #         self.out_dir,
-        #         f"training_results_{self.timestr}",
-        #         (
-        #             f"{train_or_valid}_"
-        #             f"epoch{str(epoch).zfill(3)}_"
-        #             f"batch{str(batch_id).zfill(4)}_"
-        #             f"intra-site.nii.gz"
-        #         ),
-        #     )
+            file_name = os.path.join(
+                self.out_dir,
+                f"training_results_{self.timestr}",
+                (
+                    f"{train_or_valid}_"
+                    f"epoch{str(epoch).zfill(3)}_"
+                    f"batch{str(batch_id).zfill(4)}_"
+                    f"intra-site.nii.gz"
+                ),
+            )
     
-        #     save_image(
-        #         source_images
-        #         + [rec_image]
-        #         + [target_image]
-        #         + betas
-        #         + [beta_fusion],
-        #         file_name,
-        #     )
+            save_image_3d(
+                source_images
+                + [rec_image]
+                + [target_image]
+                + betas
+                + [beta_fusion],
+                file_name,
+            )
     
     
         # ======================================================
