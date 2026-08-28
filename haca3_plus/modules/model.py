@@ -519,8 +519,8 @@ class HACA3:
                 subject_id:subject_id + 1,
                 query_idx
             ]
-            print("source_images_stack:", source_images_stack.shape)
-            print("betas_stack:", betas_stack.shape)
+            #print("source_images_stack:", source_images_stack.shape)
+            #print("betas_stack:", betas_stack.shape)
     
             query_feature = self.patchifier(
                 query_image
@@ -535,8 +535,8 @@ class HACA3:
                 subject_id:subject_id + 1,
                 query_idx
             ]
-            print("query image:", query_image.shape)
-            print("positive beta:", positive_beta.shape)
+            #print("query image:", query_image.shape)
+            #print("positive beta:", positive_beta.shape)
             
             positive_feature = self.patchifier(
                 positive_beta
