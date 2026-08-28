@@ -1175,111 +1175,111 @@ class HACA3:
     
         return loss
 
-def train(
-    self,
-    epochs,
-):
-
-    for epoch in range(
-        self.start_epoch,
-        epochs + 1,
+    def train(
+        self,
+        epochs,
     ):
-
-        print()
-        print(
-            f"========== EPOCH {epoch}/{epochs} =========="
-        )
-
-
-        # ==================================================
-        # TRAINING
-        # ==================================================
-
-        self.beta_encoder.train()
-        self.theta_encoder.train()
-
-        # Eta stays frozen
-        self.eta_encoder.eval()
-
-        self.decoder.train()
-        self.attention_module.train()
-        self.patchifier.train()
-
-
-        train_iterator = tqdm(
-            self.train_loader,
-            desc=f"Train {epoch}/{epochs}",
-        )
-
-
-        for (
-            batch_id,
-            image_dicts,
-        ) in enumerate(
-            train_iterator
+    
+        for epoch in range(
+            self.start_epoch,
+            epochs + 1,
         ):
-
-            loss = self.image_to_image_translation(
-                batch_id,
-                epoch,
-                image_dicts,
-                train_or_valid="train",
+    
+            print()
+            print(
+                f"========== EPOCH {epoch}/{epochs} =========="
             )
-
-
-            train_iterator.set_description(
-                (
-                    f"Train {epoch}/{epochs} | "
-                    f"rec {loss['rec_loss']:.3f} | "
-                    f"kld {loss['kld_loss']:.3f} | "
-                    f"beta {loss['beta_loss']:.3f}"
-                )
+    
+    
+            # ==================================================
+            # TRAINING
+            # ==================================================
+    
+            self.beta_encoder.train()
+            self.theta_encoder.train()
+    
+            # Eta stays frozen
+            self.eta_encoder.eval()
+    
+            self.decoder.train()
+            self.attention_module.train()
+            self.patchifier.train()
+    
+    
+            train_iterator = tqdm(
+                self.train_loader,
+                desc=f"Train {epoch}/{epochs}",
             )
-
-
-        # ==================================================
-        # VALIDATION
-        # ==================================================
-
-        self.beta_encoder.eval()
-        self.theta_encoder.eval()
-        self.eta_encoder.eval()
-        self.decoder.eval()
-        self.attention_module.eval()
-        self.patchifier.eval()
-
-
-        valid_iterator = tqdm(
-            self.valid_loader,
-            desc=f"Valid {epoch}/{epochs}",
-        )
-
-
-        with torch.no_grad():
-
+    
+    
             for (
                 batch_id,
                 image_dicts,
             ) in enumerate(
-                valid_iterator
+                train_iterator
             ):
-
+    
                 loss = self.image_to_image_translation(
                     batch_id,
                     epoch,
                     image_dicts,
-                    train_or_valid="valid",
+                    train_or_valid="train",
                 )
-
-
-                valid_iterator.set_description(
+    
+    
+                train_iterator.set_description(
                     (
-                        f"Valid {epoch}/{epochs} | "
+                        f"Train {epoch}/{epochs} | "
                         f"rec {loss['rec_loss']:.3f} | "
                         f"kld {loss['kld_loss']:.3f} | "
                         f"beta {loss['beta_loss']:.3f}"
                     )
                 )
+    
+    
+            # ==================================================
+            # VALIDATION
+            # ==================================================
+    
+            self.beta_encoder.eval()
+            self.theta_encoder.eval()
+            self.eta_encoder.eval()
+            self.decoder.eval()
+            self.attention_module.eval()
+            self.patchifier.eval()
+    
+    
+            valid_iterator = tqdm(
+                self.valid_loader,
+                desc=f"Valid {epoch}/{epochs}",
+            )
+    
+    
+            with torch.no_grad():
+    
+                for (
+                    batch_id,
+                    image_dicts,
+                ) in enumerate(
+                    valid_iterator
+                ):
+    
+                    loss = self.image_to_image_translation(
+                        batch_id,
+                        epoch,
+                        image_dicts,
+                        train_or_valid="valid",
+                    )
+    
+    
+                    valid_iterator.set_description(
+                        (
+                            f"Valid {epoch}/{epochs} | "
+                            f"rec {loss['rec_loss']:.3f} | "
+                            f"kld {loss['kld_loss']:.3f} | "
+                            f"beta {loss['beta_loss']:.3f}"
+                        )
+                    )
 
     def harmonize(self, source_images, target_images, target_theta, target_eta, out_paths,
                   recon_orientation, norm_vals, header=None, num_batches=4, save_intermediate=False, intermediate_out_dir=None):
