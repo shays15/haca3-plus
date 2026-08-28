@@ -32,6 +32,51 @@ def save_image(images, file_name):
     image_save = nib.Nifti1Image(image_save.transpose(1, 0), np.eye(4))
     nib.save(image_save, file_name)
 
+def save_image_3d(images, file_name):
+    """
+    Save a list of 3D tensors as a 4D NIfTI.
+
+    Input tensors:
+        [B, 1, D, H, W]
+
+    Output:
+        [D, H, W, N]
+    """
+
+    volumes = []
+
+    for image in images:
+
+        image = (
+            image.detach()
+            .float()
+            .cpu()
+        )
+
+        # Batch size must be 1 for this visualization
+        assert image.shape[0] == 1
+
+        # [1,1,D,H,W] -> [D,H,W]
+        volume = (
+            image[0, 0]
+            .numpy()
+        )
+
+        volumes.append(volume)
+
+    image_save = np.stack(
+        volumes,
+        axis=-1,
+    )
+
+    nib.save(
+        nib.Nifti1Image(
+            image_save,
+            np.eye(4),
+        ),
+        file_name,
+    )
+
 
 def dropout_contrasts(available_contrast_id, contrast_id_to_drop=None):
     """
