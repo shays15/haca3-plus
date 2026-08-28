@@ -130,24 +130,85 @@ class HACA3:
         dataset_dirs,
         contrasts,
         batch_size=1,
-        normalization_method="none",
+        normalization_method="01",
         num_workers=0,
     ):
+        """
+        Load full-volume 3D HACA3+ training and validation datasets.
+    
+        Each contrast returned by the DataLoader has shape:
+            [B, 1, D, H, W]
+    
+        where currently:
+            D, H, W = 192, 224, 192
+        """
+    
+        # ======================================================
+        # TRAINING DATASET
+        # ======================================================
+    
         train_dataset = HACA3Dataset(
             dataset_dirs=dataset_dirs,
             contrasts=contrasts,
             mode="train",
             normalization_method=normalization_method,
         )
-        
+    
+    
+        # ======================================================
+        # VALIDATION DATASET
+        # ======================================================
+    
+        valid_dataset = HACA3Dataset(
+            dataset_dirs=dataset_dirs,
+            contrasts=contrasts,
+            mode="valid",
+            normalization_method=normalization_method,
+        )
+    
+    
+        # ======================================================
+        # PRINT DATASET SIZES
+        # ======================================================
+    
+        print()
+        print("===== DATASET SIZES =====")
+        print(f"Training samples:   {len(train_dataset)}")
+        print(f"Validation samples: {len(valid_dataset)}")
+        print()
+    
+    
+        if len(train_dataset) == 0:
+            raise RuntimeError(
+                "Training dataset contains zero samples."
+            )
+    
+        if len(valid_dataset) == 0:
+            raise RuntimeError(
+                "Validation dataset contains zero samples."
+            )
+    
+    
+        # ======================================================
+        # DATA LOADERS
+        # ======================================================
+    
         self.train_loader = DataLoader(
             train_dataset,
             batch_size=batch_size,
             shuffle=True,
             num_workers=num_workers,
+            pin_memory=True,
         )
-        self.train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
-        self.valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
+    
+    
+        self.valid_loader = DataLoader(
+            valid_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=True,
+        )
 
     def calculate_theta(self, images):
         if isinstance(images, list):
@@ -752,30 +813,94 @@ class HACA3:
                                      f'epoch{str(epoch).zfill(3)}_batch{str(batch_id).zfill(4)}_model.pt')
             self.save_model(epoch, file_name)
 
-    def train(self, epochs):
-        for epoch in range(self.start_epoch, epochs + 1):
-            # ====== 1. TRAINING ======
-            self.train_loader = tqdm(self.train_loader)
-            self.eta_encoder.eval()
-            self.theta_encoder.train()
+    def train(
+        self,
+        epochs,
+    ):
+        """
+        Train full-volume 3D HACA3+.
+        """
+    
+        for epoch in range(
+            self.start_epoch,
+            epochs + 1,
+        ):
+    
+            print()
+            print(
+                f"========== EPOCH {epoch}/{epochs} =========="
+            )
+    
+    
+            # ==================================================
+            # 1. TRAINING
+            # ==================================================
+    
             self.beta_encoder.train()
+            self.theta_encoder.train()
+    
+            # Eta remains fixed/pretrained
+            self.eta_encoder.eval()
+    
             self.decoder.train()
             self.attention_module.train()
             self.patchifier.train()
-            for batch_id, image_dicts in enumerate(self.train_loader):
-                self.image_to_image_translation(batch_id, epoch, image_dicts, train_or_valid='train')
-
-            # ====== 2. VALIDATION ======
-            self.valid_loader = tqdm(self.valid_loader)
+    
+    
+            train_iterator = tqdm(
+                self.train_loader,
+                desc=f"Train {epoch}/{epochs}",
+            )
+    
+    
+            for (
+                batch_id,
+                image_dicts,
+            ) in enumerate(
+                train_iterator
+            ):
+    
+                self.image_to_image_translation(
+                    batch_id,
+                    epoch,
+                    image_dicts,
+                    train_or_valid="train",
+                )
+    
+    
+            # ==================================================
+            # 2. VALIDATION
+            # ==================================================
+    
             self.beta_encoder.eval()
-            self.eta_encoder.eval()
             self.theta_encoder.eval()
+            self.eta_encoder.eval()
             self.decoder.eval()
-            self.patchifier.eval()
             self.attention_module.eval()
-            with torch.set_grad_enabled(False):
-                for batch_id, image_dicts in enumerate(self.valid_loader):
-                    self.image_to_image_translation(batch_id, epoch, image_dicts, train_or_valid='valid')
+            self.patchifier.eval()
+    
+    
+            valid_iterator = tqdm(
+                self.valid_loader,
+                desc=f"Valid {epoch}/{epochs}",
+            )
+    
+    
+            with torch.no_grad():
+    
+                for (
+                    batch_id,
+                    image_dicts,
+                ) in enumerate(
+                    valid_iterator
+                ):
+    
+                    self.image_to_image_translation(
+                        batch_id,
+                        epoch,
+                        image_dicts,
+                        train_or_valid="valid",
+                    )
 
     def harmonize(self, source_images, target_images, target_theta, target_eta, out_paths,
                   recon_orientation, norm_vals, header=None, num_batches=4, save_intermediate=False, intermediate_out_dir=None):
