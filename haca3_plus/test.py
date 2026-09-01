@@ -5,224 +5,709 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 import torch
-# from torchvision.transforms import ToTensor
 
 from skimage.filters import threshold_otsu
 from skimage.morphology import isotropic_closing
 
 from .modules.model import HACA3
-from .modules.utils import *
+from .modules.utils import mkdir_p
 
+
+# ==========================================================
+# BACKGROUND REMOVAL
+# ==========================================================
 
 def background_removal(image_vol):
-    [n_row, n_col, n_slc] = image_vol.shape
+    """
+    Optional 3D foreground masking.
+
+    image_vol:
+        [D, H, W]
+    """
+
+    if np.max(image_vol) <= 0:
+        return image_vol
+
     thresh = threshold_otsu(image_vol)
-    mask = (image_vol >= thresh) * 1.0
-    mask = zero_pad(mask, 256)
-    mask = isotropic_closing(mask, radius=20)
-    mask = crop(mask, n_row, n_col, n_slc)
-    image_vol[mask < 1e-4] = 0.0
+
+    mask = image_vol >= thresh
+
+    # 3D morphological closing
+    mask = isotropic_closing(
+        mask,
+        radius=20,
+    )
+
+    image_vol = image_vol.copy()
+    image_vol[~mask] = 0.0
+
     return image_vol
 
-def background_removal2d(image_vol):
-    [n_row, n_col] = image_vol.shape
-    thresh = threshold_otsu(image_vol)
-    mask = (image_vol >= thresh) * 1.0
-    mask = zero_pad2d(mask, 256)
-    mask = isotropic_closing(mask, radius=20)
-    mask = crop2d(mask, n_row, n_col)
-    image_vol[mask < 1e-4] = 0.0
-    return image_vol
 
-def obtain_single_image(image_path, bg_removal=True):
-    image_obj = nib.Nifti1Image.from_filename(image_path)
-    image_vol = np.array(image_obj.get_fdata().astype(np.float32))
-    thresh = np.percentile(image_vol.flatten(), 95)
-    image_vol = image_vol / (thresh + 1e-5)
-    image_vol = np.clip(image_vol, a_min=0.0, a_max=5.0)
+# ==========================================================
+# LOAD AND NORMALIZE A SINGLE 3D IMAGE
+# ==========================================================
+
+def obtain_single_image(
+    image_path,
+    bg_removal=True,
+    normalization_method="01",
+):
+    """
+    Load a full 3D NIfTI volume.
+
+    Returns
+    -------
+    image_tensor:
+        [1, 1, D, H, W]
+
+    affine:
+        Original NIfTI affine.
+
+    header:
+        Original NIfTI header.
+
+    norm_val:
+        Normalization value used for eventual conversion
+        back to approximately the original intensity scale.
+    """
+
+    image_obj = nib.load(str(image_path))
+
+    image_vol = image_obj.get_fdata(
+        dtype=np.float32
+    )
+
+
+    # ------------------------------------------------------
+    # Normalization
+    # ------------------------------------------------------
+
+    if normalization_method == "01":
+
+        norm_val = np.percentile(
+            image_vol,
+            95,
+        )
+
+        image_vol = (
+            image_vol /
+            (norm_val + 1e-5)
+        )
+
+        image_vol = np.clip(
+            image_vol,
+            0.0,
+            5.0,
+        )
+
+    elif normalization_method == "wm":
+
+        norm_val = 2.0
+
+        image_vol = (
+            image_vol / 2.0
+        )
+
+    else:
+
+        norm_val = 1.0
+
+
+    # ------------------------------------------------------
+    # Optional foreground removal
+    # ------------------------------------------------------
+
     if bg_removal:
-        image_vol = background_removal(image_vol)
 
-    n_row, n_col, n_slc = image_vol.shape
-    # zero padding
-    image_padded = np.zeros((224, 224, 224)).astype(np.float32)
-    image_padded[112 - n_row // 2:112 + n_row // 2 + n_row % 2,
-                 112 - n_col // 2:112 + n_col // 2 + n_col % 2,
-                 112 - n_slc // 2:112 + n_slc // 2 + n_slc % 2] = image_vol
-    
-    # print(f"Image Padded shape: {image_padded.shape}")
-    # image_padded_tensor = ToTensor()(image_padded)
-    # print(f"Image Padded Tensor shape: {image_padded_tensor.shape}")
-    image_padded_numpy = torch.from_numpy(image_padded)
-    image_padded_numpy_reorient = image_padded_numpy.permute(2, 0, 1)
-    # print(f"Image Padded Numpy shape: {image_padded_numpy.shape}")
-    # image_padded_numpy_uns = image_padded_numpy.unsqueeze(0)
-    # print(f"Image Padded Numpy Unsqueeze shape: {image_padded_numpy_uns.shape}")
+        image_vol = background_removal(
+            image_vol
+        )
 
-    # return ToTensor()(image_padded), image_obj.header, thresh
-    return image_padded_numpy_reorient, image_obj.header, thresh
 
-def load_source_images(image_paths, bg_removal=True):
+    # ------------------------------------------------------
+    # NumPy -> Torch
+    #
+    # [D,H,W]
+    #     ->
+    # [1,1,D,H,W]
+    # ------------------------------------------------------
+
+    image_tensor = torch.from_numpy(
+        image_vol
+    ).float()
+
+    image_tensor = (
+        image_tensor
+        .unsqueeze(0)
+        .unsqueeze(0)
+    )
+
+
+    return (
+        image_tensor,
+        image_obj.affine,
+        image_obj.header.copy(),
+        norm_val,
+    )
+
+
+# ==========================================================
+# LOAD SOURCE IMAGES
+# ==========================================================
+
+def load_source_images(
+    image_paths,
+    bg_removal=True,
+    normalization_method="01",
+):
+    """
+    Load all source contrasts.
+
+    Each returned image:
+        [1,1,D,H,W]
+    """
+
     source_images = []
-    image_header = None
-    for image_path in image_paths:
-        image_vol, image_header, _ = obtain_single_image(image_path, bg_removal)
-        source_images.append(image_vol.float().permute(2, 1, 0))
-    return source_images, image_header
 
+    reference_affine = None
+    reference_header = None
+
+
+    for image_path in image_paths:
+
+        (
+            image,
+            affine,
+            header,
+            _,
+        ) = obtain_single_image(
+            image_path,
+            bg_removal=bg_removal,
+            normalization_method=normalization_method,
+        )
+
+
+        if reference_affine is None:
+
+            reference_affine = affine
+            reference_header = header
+
+
+        source_images.append(
+            image
+        )
+
+
+    # ------------------------------------------------------
+    # Ensure all registered volumes have the same dimensions
+    # ------------------------------------------------------
+
+    shapes = [
+        tuple(image.shape)
+        for image in source_images
+    ]
+
+
+    if len(set(shapes)) != 1:
+
+        raise ValueError(
+            "All source images must have identical dimensions. "
+            f"Found: {shapes}"
+        )
+
+
+    return (
+        source_images,
+        reference_affine,
+        reference_header,
+    )
+
+
+# ==========================================================
+# MAIN
+# ==========================================================
 
 def main(args=None):
-    args = sys.argv[1:] if args is None else args
-    parser = argparse.ArgumentParser(description='Harmonization with HACA3.')
-    parser.add_argument('--in-path', type=Path, action='append', required=True)
-    parser.add_argument('--target-image', type=Path, action='append', default=[])
-    parser.add_argument('--target-theta', type=float, nargs=2, action='append', default=[])
-    parser.add_argument('--target-eta', type=float, nargs=2, action='append', default=[])
-    parser.add_argument('--norm-val', type=float, action='append', default=[])
-    parser.add_argument('--out-path', type=Path, action='append', required=True)
-    parser.add_argument('--harmonization-model', type=Path, required=True)
-    parser.add_argument('--fusion-model', type=Path)
-    parser.add_argument('--beta-dim', type=int, default=5)
-    parser.add_argument('--theta-dim', type=int, default=2)
-    parser.add_argument('--save-intermediate', action='store_true', default=False)
-    parser.add_argument('--intermediate-out-dir', type=Path, default=Path.cwd())
-    parser.add_argument('--no-bg-removal', dest='bg_removal', action='store_false', default=True)
-    parser.add_argument('--gpu-id', type=int, default=0)
-    parser.add_argument('--num-batches', type=int, default=4)
+
+    args = (
+        sys.argv[1:]
+        if args is None
+        else args
+    )
+
+
+    parser = argparse.ArgumentParser(
+        description="3D Harmonization with HACA3+."
+    )
+
+
+    # ------------------------------------------------------
+    # INPUTS
+    # ------------------------------------------------------
+
+    parser.add_argument(
+        "--in-path",
+        type=Path,
+        action="append",
+        required=True,
+        help=(
+            "Source registered MRI volume. "
+            "Specify once per available contrast."
+        ),
+    )
+
+
+    # ------------------------------------------------------
+    # TARGET CONTRAST
+    # ------------------------------------------------------
+
+    parser.add_argument(
+        "--target-image",
+        type=Path,
+        action="append",
+        default=[],
+    )
+
+    parser.add_argument(
+        "--target-theta",
+        type=float,
+        nargs=2,
+        action="append",
+        default=[],
+    )
+
+    parser.add_argument(
+        "--target-eta",
+        type=float,
+        nargs=2,
+        action="append",
+        default=[],
+    )
+
+
+    # ------------------------------------------------------
+    # INTENSITY NORMALIZATION
+    # ------------------------------------------------------
+
+    parser.add_argument(
+        "--norm-val",
+        type=float,
+        action="append",
+        default=[],
+    )
+
+    parser.add_argument(
+        "--normalization-method",
+        type=str,
+        default="01",
+        choices=[
+            "01",
+            "wm",
+            "none",
+        ],
+    )
+
+
+    # ------------------------------------------------------
+    # OUTPUT
+    # ------------------------------------------------------
+
+    parser.add_argument(
+        "--out-path",
+        type=Path,
+        action="append",
+        required=True,
+    )
+
+
+    # ------------------------------------------------------
+    # MODEL
+    # ------------------------------------------------------
+
+    parser.add_argument(
+        "--harmonization-model",
+        type=Path,
+        required=True,
+    )
+
+    parser.add_argument(
+        "--beta-dim",
+        type=int,
+        default=5,
+    )
+
+    parser.add_argument(
+        "--theta-dim",
+        type=int,
+        default=2,
+    )
+
+    parser.add_argument(
+        "--eta-dim",
+        type=int,
+        default=2,
+    )
+
+
+    # ------------------------------------------------------
+    # OPTIONAL OUTPUTS
+    # ------------------------------------------------------
+
+    parser.add_argument(
+        "--save-intermediate",
+        action="store_true",
+        default=False,
+    )
+
+    parser.add_argument(
+        "--intermediate-out-dir",
+        type=Path,
+        default=Path.cwd(),
+    )
+
+
+    # ------------------------------------------------------
+    # PROCESSING
+    # ------------------------------------------------------
+
+    parser.add_argument(
+        "--no-bg-removal",
+        dest="bg_removal",
+        action="store_false",
+        default=True,
+    )
+
+    parser.add_argument(
+        "--gpu-id",
+        type=int,
+        default=0,
+    )
+
 
     args = parser.parse_args(args)
 
-    text_div = '=' * 10
-    print(f'{text_div} BEGIN HACA3 HARMONIZATION {text_div}')
 
-    # ==== GET ABSOLUTE PATHS ====
-    for argname in ['in_path', 'target_image', 'out_path', 'harmonization_model',
-                    'fusion_model', 'intermediate_out_dir']:
-        if isinstance(getattr(args, argname), list):
-            setattr(args, argname, [path.resolve() for path in getattr(args, argname)])
-        else:
-            setattr(args, argname, getattr(args, argname).resolve())
+    # ======================================================
+    # BEGIN
+    # ======================================================
 
-    # ==== SET DEFAULT FOR NORM/ETA ====
-    if len(args.target_theta) > 0 and len(args.target_eta) == 0:
-        args.target_eta = [[0.3, 0.5]]
-    if len(args.target_theta) > 0 and len(args.norm_val) == 0:
-        args.norm_val = [1000]
+    text_div = "=" * 10
 
-    # ==== CHECK CONDITIONS OF INPUT ARGUMENTS ====
-    if not ((len(args.target_image) > 0) ^ (len(args.target_theta) > 0)):
-        parser.error("'--target-image' or '--target-theta' value should be provided.")
+    print(
+        f"{text_div} BEGIN 3D HACA3+ HARMONIZATION {text_div}"
+    )
 
-    if 0 < len(args.target_image) != len(args.out_path):
-        parser.error("Number of '--out-path' and '--target-image' options should be the same.")
 
-    if len(args.target_theta) == 1 and len(args.target_eta) > 1:
-        args.target_theta = args.target_theta * len(args.target_eta)
+    # ======================================================
+    # ABSOLUTE PATHS
+    # ======================================================
 
-    if len(args.target_theta) > 1 and len(args.target_eta) == 1:
-        args.target_eta = args.target_eta * len(args.target_theta)
+    args.in_path = [
+        path.resolve()
+        for path in args.in_path
+    ]
 
-    if len(args.target_theta) > 1 and len(args.norm_val) == 1:
-        args.norm_val = args.norm_val * len(args.target_theta)
+    args.target_image = [
+        path.resolve()
+        for path in args.target_image
+    ]
 
-    if 0 < len(args.target_theta) != len(args.target_eta):
-        parser.error("Number of '--target-theta' and '--target-eta' options should be the same.")
+    args.out_path = [
+        path.resolve()
+        for path in args.out_path
+    ]
 
-    if 0 < len(args.target_theta) != len(args.norm_val):
-        parser.error("Number of '--target-theta' and '--norm-val' options should be the same.")
+    args.harmonization_model = (
+        args.harmonization_model.resolve()
+    )
 
-    if 0 < len(args.target_theta) != len(args.out_path):
-        parser.error("Number of '--target-theta' and '--out-path' options should be the same.")
+    args.intermediate_out_dir = (
+        args.intermediate_out_dir.resolve()
+    )
+
+
+    # ======================================================
+    # ARGUMENT CHECKS
+    # ======================================================
+
+    using_target_image = (
+        len(args.target_image) > 0
+    )
+
+    using_target_theta = (
+        len(args.target_theta) > 0
+    )
+
+
+    if not (
+        using_target_image
+        ^ using_target_theta
+    ):
+
+        parser.error(
+            "Provide either --target-image "
+            "or --target-theta."
+        )
+
+
+    if (
+        using_target_image
+        and
+        len(args.target_image)
+        != len(args.out_path)
+    ):
+
+        parser.error(
+            "Number of --target-image and "
+            "--out-path arguments must match."
+        )
+
+
+    # ======================================================
+    # DEFAULT TARGET ETA
+    # ======================================================
+
+    if (
+        using_target_theta
+        and
+        len(args.target_eta) == 0
+    ):
+
+        args.target_eta = [
+            [0.3, 0.5]
+        ]
+
+
+    # ======================================================
+    # BROADCAST TARGET THETA / ETA
+    # ======================================================
+
+    if (
+        len(args.target_theta) == 1
+        and
+        len(args.target_eta) > 1
+    ):
+
+        args.target_theta = (
+            args.target_theta
+            * len(args.target_eta)
+        )
+
+
+    if (
+        len(args.target_theta) > 1
+        and
+        len(args.target_eta) == 1
+    ):
+
+        args.target_eta = (
+            args.target_eta
+            * len(args.target_theta)
+        )
+
+
+    if (
+        using_target_theta
+        and
+        len(args.target_theta)
+        != len(args.out_path)
+    ):
+
+        parser.error(
+            "Number of --target-theta and "
+            "--out-path arguments must match."
+        )
+
+
+    if (
+        len(args.target_theta) > 0
+        and
+        len(args.target_theta)
+        != len(args.target_eta)
+    ):
+
+        parser.error(
+            "Number of --target-theta and "
+            "--target-eta arguments must match."
+        )
+
+
+    # ======================================================
+    # INTERMEDIATE DIRECTORY
+    # ======================================================
 
     if args.save_intermediate:
-        mkdir_p(args.intermediate_out_dir)
 
-    # ==== INITIALIZE MODEL ====
-    haca3 = HACA3(beta_dim=args.beta_dim,
-                  theta_dim=args.theta_dim,
-                  eta_dim=2,
-                  pretrained_haca3=args.harmonization_model,
-                  gpu_id=args.gpu_id)
+        mkdir_p(
+            args.intermediate_out_dir
+        )
 
-    # ==== LOAD SOURCE IMAGES ====
-    source_images, image_header = load_source_images(args.in_path, args.bg_removal)
 
-    # ==== LOAD TARGET IMAGES IF PROVIDED ====
-    if len(args.target_image) > 0:
-        target_images, norm_vals = [], []
-        for target_image_path, out_path in zip(args.target_image, args.out_path):
-            target_image_tmp, tmp_header, norm_val = obtain_single_image(target_image_path, args.bg_removal)
-            target_images.append(target_image_tmp.permute(2, 1, 0).permute(0, 2, 1).flip(1)[100:120, ...])
-            norm_vals.append(norm_val)
-            if args.save_intermediate:
-                out_prefix = out_path.name.replace('.nii.gz', '')
-                save_img = target_image_tmp.permute(1, 2, 0).numpy()[112 - 96:112 + 96, :, 112 - 96:112 + 96]
-                target_obj = nib.Nifti1Image(save_img * norm_val, None, tmp_header)
-                target_obj.to_filename(args.intermediate_out_dir / f'{out_prefix}_target.nii.gz')
-        if args.save_intermediate:
-            out_prefix = args.out_path[0].name.replace('.nii.gz', '')
-            with open(args.intermediate_out_dir / f'{out_prefix}_targetnorms.txt', 'w') as fp:
-                fp.write('image,norm_val\n')
-                for i, norm_val in enumerate(norm_vals):
-                    fp.write(f'{i},{norm_val:.6f}\n')
-            np.savetxt(args.intermediate_out_dir / f'{out_prefix}_targetnorms.txt', norm_vals)
+    # ======================================================
+    # INITIALIZE MODEL
+    # ======================================================
+
+    print()
+    print("Loading HACA3+ model...")
+
+    haca3 = HACA3(
+        beta_dim=args.beta_dim,
+        theta_dim=args.theta_dim,
+        eta_dim=args.eta_dim,
+        pretrained_haca3=args.harmonization_model,
+        gpu_id=args.gpu_id,
+    )
+
+
+    # ======================================================
+    # LOAD SOURCE IMAGES
+    # ======================================================
+
+    print()
+    print("Loading source images...")
+
+
+    (
+        source_images,
+        image_affine,
+        image_header,
+    ) = load_source_images(
+        args.in_path,
+        bg_removal=args.bg_removal,
+        normalization_method=args.normalization_method,
+    )
+
+
+    print(
+        "Number of source images:",
+        len(source_images),
+    )
+
+
+    for i, image in enumerate(
+        source_images
+    ):
+
+        print(
+            f"source {i}: "
+            f"shape={tuple(image.shape)}, "
+            f"min={image.min().item():.4f}, "
+            f"max={image.max().item():.4f}"
+        )
+
+
+    # ======================================================
+    # LOAD TARGET IMAGE(S)
+    # ======================================================
+
+    if using_target_image:
+
+        target_images = []
+        norm_vals = []
+
+
+        for target_path in args.target_image:
+
+            (
+                target_image,
+                _,
+                _,
+                norm_val,
+            ) = obtain_single_image(
+                target_path,
+                bg_removal=args.bg_removal,
+                normalization_method=args.normalization_method,
+            )
+
+
+            target_images.append(
+                target_image
+            )
+
+            norm_vals.append(
+                norm_val
+            )
+
+
         target_theta = None
         target_eta = None
+
+
+    # ======================================================
+    # OR USE PROVIDED THETA / ETA
+    # ======================================================
+
     else:
+
         target_images = None
-        target_theta = torch.as_tensor(args.target_theta, dtype=torch.float32)
-        target_eta = torch.as_tensor(args.target_eta, dtype=torch.float32)
-        norm_vals = args.norm_val
 
-    # ===== BEGIN HARMONIZATION WITH HACA3 =====
+
+        target_theta = torch.as_tensor(
+            args.target_theta,
+            dtype=torch.float32,
+        )
+
+
+        target_eta = torch.as_tensor(
+            args.target_eta,
+            dtype=torch.float32,
+        )
+
+
+        if len(args.norm_val) == 0:
+
+            norm_vals = [
+                1000.0
+            ] * len(
+                args.target_theta
+            )
+
+        elif (
+            len(args.norm_val) == 1
+            and
+            len(args.target_theta) > 1
+        ):
+
+            norm_vals = (
+                args.norm_val
+                * len(args.target_theta)
+            )
+
+        else:
+
+            norm_vals = args.norm_val
+
+
+    # ======================================================
+    # 3D HARMONIZATION
+    # ======================================================
+
+    print()
+    print(
+        f"{text_div} START 3D HARMONIZATION {text_div}"
+    )
+
+
     haca3.harmonize(
-        source_images=[image.permute(2, 0, 1) for image in source_images],
+        source_images=source_images,
         target_images=target_images,
         target_theta=target_theta,
         target_eta=target_eta,
         out_paths=args.out_path,
+        affine=image_affine,
         header=image_header,
-        recon_orientation='axial',
         norm_vals=norm_vals,
-        num_batches=args.num_batches,
         save_intermediate=args.save_intermediate,
         intermediate_out_dir=args.intermediate_out_dir,
     )
 
-    haca3.harmonize(
-        source_images=[image.permute(0, 2, 1).flip(1) for image in source_images],
-        target_images=target_images,
-        target_theta=target_theta,
-        target_eta=target_eta,
-        out_paths=args.out_path,
-        header=image_header,
-        recon_orientation='coronal',
-        norm_vals=norm_vals,
-        num_batches=args.num_batches,
-        save_intermediate=args.save_intermediate,
-        intermediate_out_dir=args.intermediate_out_dir,
+
+    print()
+    print(
+        f"{text_div} COMPLETE {text_div}"
     )
 
-    haca3.harmonize(
-        source_images=[image.permute(1, 2, 0).flip(1) for image in source_images],
-        target_images=target_images,
-        target_theta=target_theta,
-        target_eta=target_eta,
-        out_paths=args.out_path,
-        header=image_header,
-        recon_orientation='sagittal',
-        norm_vals=norm_vals,
-        num_batches=args.num_batches,
-        save_intermediate=args.save_intermediate,
-        intermediate_out_dir=args.intermediate_out_dir,
-    )
 
-    print(f'{text_div} START FUSION {text_div}')
-    for out_path, norm_val in zip(args.out_path, norm_vals):
-        prefix = out_path.name.replace('.nii.gz', '')
-        decode_img_paths = [out_path.parent / f'{prefix}_harmonized_{orient}.nii.gz'
-                            for orient in ['axial', 'coronal', 'sagittal']]
-        haca3.combine_images(decode_img_paths, out_path, norm_val, args.fusion_model)
-
-if __name__ == '__main__':
-        main()
+if __name__ == "__main__":
+    main()
