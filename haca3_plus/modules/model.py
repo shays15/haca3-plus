@@ -1379,7 +1379,7 @@ class HACA3:
                 # θ contrast representation
                 # ------------------------------------------------
     
-                thetas_source = self.calculate_theta(
+                thetas_source, _, _ = self.calculate_theta(
                     source_images
                 )
     
@@ -1411,6 +1411,22 @@ class HACA3:
                         etas_source,
                     )
                 ]
+                print("theta type:", type(thetas_source))
+                print("eta type:", type(etas_source))
+                
+                for i, theta in enumerate(thetas_source):
+                    print(
+                        f"theta {i}:",
+                        type(theta),
+                        theta.shape,
+                    )
+                
+                for i, eta in enumerate(etas_source):
+                    print(
+                        f"eta {i}:",
+                        type(eta),
+                        eta.shape,
+                    )
     
         # ======================================================
         # TARGET REPRESENTATION
