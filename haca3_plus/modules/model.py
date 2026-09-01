@@ -1280,224 +1280,423 @@ class HACA3:
                             f"beta {loss['beta_loss']:.3f}"
                         )
                     )
-
-    def harmonize(self, source_images, target_images, target_theta, target_eta, out_paths,
-                  recon_orientation, norm_vals, header=None, num_batches=4, save_intermediate=False, intermediate_out_dir=None):
-        if out_paths is not None:
-            for out_path in out_paths:
-                mkdir_p(out_path.parent)
-        if save_intermediate:
-            mkdir_p(intermediate_out_dir)
-        if out_paths is not None:
-            prefix = out_paths[0].name.replace('.nii.gz', '')
-        with torch.set_grad_enabled(False):
-            self.beta_encoder.eval()
-            self.theta_encoder.eval()
-            self.eta_encoder.eval()
-            self.decoder.eval()
-
-            # === 1. CALCULATE BETA, THETA, ETA FROM SOURCE IMAGES ===
-            logits, betas, keys, masks = [], [], [], []
-            for source_image in source_images:
-                source_image = source_image.unsqueeze(1)
-                source_image_batches = divide_into_batches(source_image, num_batches)
-                mask_tmp, logit_tmp, beta_tmp, key_tmp = [], [], [], []
-                for source_image_batch in source_image_batches:
-                    batch_size = source_image_batch.shape[0]
-                    source_image_batch = source_image_batch.to(self.device)
-                    #mask = (source_image_batch > 1e-6) * 1.0
-                    mask = (source_image_batch > 1e-2) * 1.0
-                    logit = self.beta_encoder(source_image_batch)
-                    beta = self.channel_aggregation(reparameterize_logit(logit))
-                    theta_source, _ = self.theta_encoder(source_image_batch)
-                    eta_source = self.eta_encoder(source_image_batch).view(batch_size, self.eta_dim, 1, 1)
-                    mask_tmp.append(mask)
-                    logit_tmp.append(logit)
-                    beta_tmp.append(beta)
-                    key_tmp.append(torch.cat([theta_source, eta_source], dim=1))
-                masks.append(torch.cat(mask_tmp, dim=0))
-                logits.append(torch.cat(logit_tmp, dim=0))
-                betas.append(torch.cat(beta_tmp, dim=0))
-                keys.append(torch.cat(key_tmp, dim=0))
-
-            # === 2. CALCULATE THETA, ETA FOR TARGET IMAGES (IF NEEDED) ===
-            if target_theta is None:
-                queries, thetas_target = [], []
-                for target_image in target_images:
-                    target_image = target_image.to(self.device).unsqueeze(1)
-                    theta_target, _ = self.theta_encoder(target_image)
-                    theta_target = theta_target.mean(dim=0, keepdim=True)
-                    eta_target = self.eta_encoder(target_image).mean(dim=0, keepdim=True).view(1, self.eta_dim, 1, 1)
-                    thetas_target.append(theta_target)
-                    queries.append(
-                        torch.cat([theta_target, eta_target], dim=1).view(1, self.theta_dim + self.eta_dim, 1))
-                if save_intermediate:
-                    # save theta and eta of target images
-                    with open(intermediate_out_dir / f'{prefix}_targets.txt', 'w') as fp:
-                        fp.write(','.join(['img'] + [f'theta{i}' for i in range(self.theta_dim)] +
-                                          [f'eta{i}' for i in range(self.eta_dim)]) + '\n')
-                        for i, img_query in enumerate([query.squeeze().cpu().numpy().tolist() for query in queries]):
-                            fp.write(','.join([f'target{i}'] + ['%.6f' % val for val in img_query]) + '\n')
-            else:
-                queries, thetas_target = [], []
-                for target_theta_tmp, target_eta_tmp in zip(target_theta, target_eta):
-                    thetas_target.append(target_theta_tmp.view(1, self.theta_dim, 1, 1).to(self.device))
-                    queries.append(torch.cat([target_theta_tmp.view(1, self.theta_dim, 1).to(self.device),
-                                              target_eta_tmp.view(1, self.eta_dim, 1).to(self.device)], dim=1))
-
-            # === 3. SAVE ENCODED VARIABLES (IF REQUESTED) ===
-            if save_intermediate and header is not None:
-                if recon_orientation == 'axial':
-                    # 3a. source images
-                    for i, source_img in enumerate(source_images):
-                        img_save = source_img.squeeze().permute(1, 2, 0).permute(1, 0, 2).cpu().numpy()
-                        img_save = img_save[112 - 96:112 + 96, :, 112 - 96:112 + 96]
-                        nib.Nifti1Image(img_save, None, header).to_filename(
-                            intermediate_out_dir / f'{prefix}_source{i}.nii.gz'
+    def harmonize(
+        self,
+        source_images,
+        target_images,
+        target_theta,
+        target_eta,
+        out_paths,
+        affine,
+        header,
+        norm_vals,
+        save_intermediate=False,
+        intermediate_out_dir=None,
+    ):
+        """
+        Perform full-volume 3D HACA3+ harmonization.
+    
+        Parameters
+        ----------
+        source_images:
+            List of source volumes.
+            Each tensor has shape:
+                [1, 1, D, H, W]
+    
+        target_images:
+            Optional list of target images.
+            Each tensor:
+                [1, 1, D, H, W]
+    
+        target_theta:
+            Optional manually specified theta:
+                [N_targets, theta_dim]
+    
+        target_eta:
+            Optional manually specified eta:
+                [N_targets, eta_dim]
+    
+        out_paths:
+            Output NIfTI paths.
+    
+        affine:
+            Reference NIfTI affine.
+    
+        header:
+            Reference NIfTI header.
+    
+        norm_vals:
+            Values used to return outputs to desired
+            intensity scale.
+        """
+    
+        # ======================================================
+        # EVAL MODE
+        # ======================================================
+    
+        self.beta_encoder.eval()
+        self.theta_encoder.eval()
+        self.eta_encoder.eval()
+        self.attention_module.eval()
+        self.decoder.eval()
+    
+        device = self.device
+    
+        # ======================================================
+        # MOVE SOURCE IMAGES TO GPU
+        # ======================================================
+    
+        source_images = [
+            image.to(
+                device,
+                non_blocking=True,
+            )
+            for image in source_images
+        ]
+    
+        print(
+            "Source shapes:",
+            [tuple(x.shape) for x in source_images],
+        )
+    
+        # ======================================================
+        # FORWARD SOURCE ENCODERS
+        # ======================================================
+    
+        with torch.inference_mode():
+    
+            with torch.cuda.amp.autocast():
+    
+                # ------------------------------------------------
+                # β anatomy representation
+                # ------------------------------------------------
+    
+                logits, betas = self.calculate_beta(
+                    source_images
+                )
+    
+                # ------------------------------------------------
+                # θ contrast representation
+                # ------------------------------------------------
+    
+                thetas_source = self.calculate_theta(
+                    source_images
+                )
+    
+                # ------------------------------------------------
+                # η artifact representation
+                # ------------------------------------------------
+    
+                etas_source = self.calculate_eta(
+                    source_images
+                )
+    
+                # ------------------------------------------------
+                # Attention keys
+                #
+                # each key:
+                # [B, theta_dim + eta_dim]
+                # ------------------------------------------------
+    
+                keys = [
+                    torch.cat(
+                        [
+                            theta,
+                            eta,
+                        ],
+                        dim=1,
+                    )
+                    for theta, eta in zip(
+                        thetas_source,
+                        etas_source,
+                    )
+                ]
+    
+        # ======================================================
+        # TARGET REPRESENTATION
+        # ======================================================
+    
+        if target_images is not None:
+    
+            target_images = [
+                image.to(
+                    device,
+                    non_blocking=True,
+                )
+                for image in target_images
+            ]
+    
+            target_queries = []
+    
+            with torch.inference_mode():
+    
+                with torch.cuda.amp.autocast():
+    
+                    for target_image in target_images:
+    
+                        theta = self.calculate_theta(
+                            [target_image]
+                        )[0]
+    
+                        eta = self.calculate_eta(
+                            [target_image]
+                        )[0]
+    
+                        query = torch.cat(
+                            [
+                                theta,
+                                eta,
+                            ],
+                            dim=1,
                         )
-                    # 3b. beta images
-                    beta = torch.stack(betas, dim=-1)
-                    print(beta.shape)
-                    if len(beta.shape) > 4:
-                        beta = beta.squeeze(1)
-                    beta = beta.permute(1, 2, 0, 3).permute(1, 0, 2, 3).cpu().numpy()
-                    img_save = nib.Nifti1Image(beta[112 - 96:112 + 96, :, 112 - 96:112 + 96, :], None, header)
-                    file_name = intermediate_out_dir / f'{prefix}_source_betas_{recon_orientation}.nii.gz'
-                    nib.save(img_save, file_name)
-                    # 3c. theta/eta values
-                    with open(intermediate_out_dir / f'{prefix}_sources.txt', 'w') as fp:
-                        fp.write(','.join(['img', 'slice'] + [f'theta{i}' for i in range(self.theta_dim)] +
-                                          [f'eta{i}' for i in range(self.eta_dim)]) + '\n')
-                        for i, img_key in enumerate([key.squeeze().cpu().numpy().tolist() for key in keys]):
-                            for j, slice_key in enumerate(img_key):
-                                fp.write(','.join([f'source{i}', f'slice{j:03d}'] +
-                                                  ['%.6f' % val for val in slice_key]) + '\n')
-                elif recon_orientation == 'coronal':
-                    # 3b. beta images
-                    beta = torch.stack(betas, dim=-1)
-                    if len(beta.shape) > 4:
-                        beta = beta.squeeze(1)
-                    beta = beta.permute(1, 2, 0, 3).permute(1, 0, 2, 3).cpu().numpy()
-                    img_save = nib.Nifti1Image(beta[112 - 96:112 + 96, :, 112 - 96:112 + 96, :], None, header)
-                    file_name = intermediate_out_dir / f'{prefix}_source_betas_{recon_orientation}.nii.gz'
-                    nib.save(img_save, file_name)
-                elif recon_orientation == 'sagittal':
-                    # 3b. beta images
-                    beta = torch.stack(betas, dim=-1)
-                    if len(beta.shape) > 4:
-                        beta = beta.squeeze(1)
-                    beta = beta.permute(1, 2, 0, 3).permute(1, 0, 2, 3).cpu().numpy()
-                    img_save = nib.Nifti1Image(beta[:, :, 112 - 96:112 + 96, :], None, header)
-                    file_name = intermediate_out_dir / f'{prefix}_source_betas_{recon_orientation}.nii.gz'
-                    nib.save(img_save, file_name)
-
-            # ===4. DECODING===
-            for tid, (theta_target, query, norm_val) in enumerate(zip(thetas_target, queries, norm_vals)):
-                if out_paths is not None:
-                    out_prefix = out_paths[tid].name.replace('.nii.gz', '')
-                rec_image, beta_fusion, logit_fusion, attention = [], [], [], []
-                for batch_id in range(num_batches):
-                    keys_tmp = [divide_into_batches(ks, num_batches)[batch_id] for ks in keys]
-                    logits_tmp = [divide_into_batches(ls, num_batches)[batch_id] for ls in logits]
-                    masks_tmp = [divide_into_batches(ms, num_batches)[batch_id] for ms in masks]
-                    batch_size = keys_tmp[0].shape[0]
-                    query_tmp = query.view(1, self.theta_dim + self.eta_dim, 1).repeat(batch_size, 1, 1)
-                    k = torch.cat(keys_tmp, dim=-1).view(batch_size, self.theta_dim + self.eta_dim, 1, len(source_images))
-                    v = torch.stack(logits_tmp, dim=-1).view(batch_size, self.beta_dim, 224 * 224, len(source_images))
-                    
-                    #expanded_mask = masks_tmp[0].unsqueeze(1)
-                    #expanded_mask = masks_tmp.expand(-1, attention.size(1), -1, -1, -1).squeeze(2)
-
-                    
-                    logit_fusion_tmp, attention_tmp = self.attention_module(query_tmp, k, v, masks_tmp, None, 5.0)
-                    beta_fusion_tmp = self.channel_aggregation(reparameterize_logit(logit_fusion_tmp))
-                    combined_map = torch.cat([beta_fusion_tmp, theta_target.repeat(batch_size, 1, 224, 224)], dim=1)
-                    masks_cpu = [mask.cpu().numpy() for mask in masks_tmp]
-                    union_mask = np.logical_or.reduce(masks_cpu)
-                    union_mask = torch.from_numpy(union_mask).to(masks_tmp[0].device)
-                    rec_image_tmp = self.decoder(combined_map) * union_mask
-                    rec_image.append(rec_image_tmp)
-                    beta_fusion.append(beta_fusion_tmp)
-                    logit_fusion.append(logit_fusion_tmp)
-                    attention.append(attention_tmp)
-
-                rec_image = torch.cat(rec_image, dim=0)
-                beta_fusion = torch.cat(beta_fusion, dim=0)
-                logit_fusion = torch.cat(logit_fusion, dim=0)
-                attention = torch.cat(attention, dim=0)
-
-                # ===5. SAVE INTERMEDIATE RESULTS (IF REQUESTED)===
-                # harmonized image
-                if header is not None:
-                    if recon_orientation == "axial":
-                        img_save = np.array(rec_image.cpu().squeeze().permute(1, 2, 0).permute(1, 0, 2))
-                    elif recon_orientation == "coronal":
-                        img_save = np.array(rec_image.cpu().squeeze().permute(0, 2, 1).flip(2).permute(1, 0, 2))
-                    else:
-                        img_save = np.array(rec_image.cpu().squeeze().permute(2, 0, 1).flip(2).permute(1, 0, 2))
-                    img_save = nib.Nifti1Image((img_save[112 - 96:112 + 96, :, 112 - 96:112 + 96]) * norm_val, None,
-                                               header)
-                    file_name = out_path.parent / f'{out_prefix}_harmonized_{recon_orientation}.nii.gz'
-                    nib.save(img_save, file_name)
-
-                if save_intermediate and header is not None:
-                    # 5a. beta fusion
-                    if recon_orientation == 'axial':
-                        img_save = beta_fusion.squeeze().permute(1, 2, 0).permute(1, 0, 2).cpu().numpy()
-                        img_save = nib.Nifti1Image(img_save[112 - 96:112 + 96, :, 112 - 96:112 + 96], None, header)
-                        file_name = intermediate_out_dir / f'{out_prefix}_beta_fusion.nii.gz'
-                        nib.save(img_save, file_name)
-                    # 5b. logit fusion
-                    if recon_orientation == 'axial':
-                        img_save = logit_fusion.permute(2, 3, 0, 1).permute(1, 0, 2, 3).cpu().numpy()
-                        img_save = nib.Nifti1Image(img_save[112 - 96:112 + 96, :, 112 - 96:112 + 96, :], None, header)
-                        file_name = intermediate_out_dir / f'{out_prefix}_logit_fusion.nii.gz'
-                        nib.save(img_save, file_name)
-                    # 5c. attention
-                    if recon_orientation == 'axial':
-                        img_save = attention.permute(2, 3, 0, 1).permute(1, 0, 2, 3).cpu().numpy()
-                        img_save = nib.Nifti1Image(img_save[112 - 96:112 + 96, :, 112 - 96:112 + 96], None, header)
-                        file_name = intermediate_out_dir / f'{out_prefix}_attention.nii.gz'
-                        nib.save(img_save, file_name)
-                    # # 5d. attention_map
-                    # if recon_orientation == 'axial' and attention_map != []:
-                    #     img_save = attention_map.permute(2, 3, 0, 1).permute(1, 0, 2, 3).cpu().numpy()
-                    #     img_save = nib.Nifti1Image(img_save[112 - 96:112 + 96, :, 112 - 96:112 + 96], None, header)
-                    #     file_name = intermediate_out_dir / f'{out_prefix}_attention_map.nii.gz'
-                    #     nib.save(img_save, file_name)
-        if header is None:
-            return rec_image.cpu().squeeze()
-
-    def combine_images(self, image_paths, out_path, norm_val, pretrained_fusion=None):
-        # obtain images
-        images = []
-        for image_path in image_paths:
-            image_pad = torch.zeros((224, 224, 224))
-            image_obj = nib.load(image_path)
-            image_vol, _ = normalize_intensity(torch.from_numpy(image_obj.get_fdata().astype(np.float32)))
-            image_pad[112 - 96:112 + 96, :, 112 - 96:112 + 96] = image_vol
-            image_header = image_obj.header
-            images.append(image_pad.numpy())
-
-        if pretrained_fusion is not None:
-            checkpoint = torch.load(pretrained_fusion, map_location=self.device)
-            fusion_net = FusionNet(in_ch=3, out_ch=1)
-            fusion_net.load_state_dict(checkpoint['fusion_net'])
-            fusion_net.to(self.device)
-            fusion_net.eval()
-            with autocast():
-                image = torch.cat(
-                    [ToTensor()(im).permute(2, 1, 0).permute(2, 0, 1).unsqueeze(0).unsqueeze(0) for im in images],
-                    dim=1).to(self.device)
-                image_fusion = fusion_net(image).squeeze().detach().permute(1, 2, 0).permute(1, 0, 2).cpu().numpy()
+    
+                        target_queries.append(
+                            query
+                        )
+    
         else:
-            # calculate median
-            image_cat = np.stack(images, axis=-1)
-            image_fusion = np.median(image_cat, axis=-1)
-
-        # save fusion_image
-        img_save = image_fusion[112 - 96:112 + 96, :, 112 - 96:112 + 96] * norm_val
-        img_save = nib.Nifti1Image(img_save, None, image_header)
-        prefix = out_path.name.replace('.nii.gz', '')
-        file_name = out_path.parent / f'{prefix}_harmonized_fusion.nii.gz'
-        nib.save(img_save, file_name)
+    
+            target_theta = target_theta.to(
+                device
+            )
+    
+            target_eta = target_eta.to(
+                device
+            )
+    
+            target_queries = [
+                torch.cat(
+                    [
+                        target_theta[i:i + 1],
+                        target_eta[i:i + 1],
+                    ],
+                    dim=1,
+                )
+                for i in range(
+                    target_theta.shape[0]
+                )
+            ]
+    
+        # ======================================================
+        # STACK SOURCE β LOGITS / KEYS
+        # ======================================================
+    
+        # logits:
+        # list N of [B,beta_dim,D,H,W]
+        #
+        # ->
+        #
+        # [B,N,beta_dim,D,H,W]
+    
+        logits_stack = torch.stack(
+            logits,
+            dim=1,
+        )
+    
+        # [B,N,theta_dim+eta_dim]
+    
+        keys_stack = torch.stack(
+            keys,
+            dim=1,
+        )
+    
+        print(
+            "logits_stack:",
+            logits_stack.shape,
+        )
+    
+        print(
+            "keys_stack:",
+            keys_stack.shape,
+        )
+    
+        # ======================================================
+        # ALL SOURCE MODALITIES AVAILABLE
+        # ======================================================
+    
+        B = logits_stack.shape[0]
+        N = logits_stack.shape[1]
+    
+        modality_dropout = torch.zeros(
+            (B, N),
+            dtype=torch.bool,
+            device=device,
+        )
+    
+        # No spatial mask during inference for now.
+        masks = None
+    
+        # ======================================================
+        # RECONSTRUCT EACH TARGET
+        # ======================================================
+    
+        for (
+            target_index,
+            query,
+            out_path,
+            norm_val,
+        ) in zip(
+            range(len(target_queries)),
+            target_queries,
+            out_paths,
+            norm_vals,
+        ):
+    
+            print()
+            print(
+                f"Harmonizing target {target_index + 1}/"
+                f"{len(target_queries)}"
+            )
+    
+            with torch.inference_mode():
+    
+                with torch.cuda.amp.autocast():
+    
+                    # --------------------------------------------
+                    # Attention fusion
+                    # --------------------------------------------
+    
+                    (
+                        logit_fusion,
+                        attention,
+                    ) = self.attention_module(
+                        q=query,
+                        k=keys_stack,
+                        v=logits_stack,
+                        mask=masks,
+                        modality_dropout=modality_dropout,
+                    )
+    
+                    # --------------------------------------------
+                    # Convert β logits to continuous anatomy map
+                    # --------------------------------------------
+    
+                    beta_fusion = (
+                        self.channel_aggregation(
+                            reparameterize_logit(
+                                logit_fusion
+                            )
+                        )
+                    )
+    
+                    # --------------------------------------------
+                    # Decoder expects:
+                    #
+                    # β + target θ
+                    # --------------------------------------------
+    
+                    _, _, D, H, W = (
+                        beta_fusion.shape
+                    )
+    
+                    if target_images is not None:
+    
+                        target_theta_current = (
+                            self.calculate_theta(
+                                [
+                                    target_images[
+                                        target_index
+                                    ]
+                                ]
+                            )[0]
+                        )
+    
+                    else:
+    
+                        target_theta_current = (
+                            target_theta[
+                                target_index:
+                                target_index + 1
+                            ]
+                        )
+    
+                    theta_map = (
+                        target_theta_current[
+                            :,
+                            :,
+                            None,
+                            None,
+                            None,
+                        ]
+                        .expand(
+                            -1,
+                            -1,
+                            D,
+                            H,
+                            W,
+                        )
+                    )
+    
+                    decoder_input = torch.cat(
+                        [
+                            beta_fusion,
+                            theta_map,
+                        ],
+                        dim=1,
+                    )
+    
+                    rec_image = self.decoder(
+                        decoder_input
+                    )
+    
+            # ==================================================
+            # SAVE OUTPUT
+            # ==================================================
+    
+            rec_image = (
+                rec_image
+                .detach()
+                .float()
+                .cpu()
+                .numpy()
+            )
+    
+            # [1,1,D,H,W] -> [D,H,W]
+            rec_image = rec_image[
+                0,
+                0,
+            ]
+    
+            # Return to requested intensity scale
+            rec_image = (
+                rec_image
+                * float(norm_val)
+            )
+    
+            # Avoid negative MRI intensities
+            rec_image = np.clip(
+                rec_image,
+                a_min=0.0,
+                a_max=None,
+            )
+    
+            output_header = (
+                header.copy()
+                if header is not None
+                else None
+            )
+    
+            output_obj = nib.Nifti1Image(
+                rec_image,
+                affine,
+                header=output_header,
+            )
+    
+            nib.save(
+                output_obj,
+                str(out_path),
+            )
+    
+            print(
+                f"Saved: {out_path}"
+            )
+    
+            print(
+                f"Output shape: {rec_image.shape}"
+            )
+    
+            print(
+                f"Output range: "
+                f"{rec_image.min():.3f} - "
+                f"{rec_image.max():.3f}"
+            )
