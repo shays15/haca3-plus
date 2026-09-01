@@ -1433,7 +1433,6 @@ class HACA3:
         # ======================================================
     
         if target_images is not None:
-        if target_images is not None:
 
             target_images = [
                 image.to(
