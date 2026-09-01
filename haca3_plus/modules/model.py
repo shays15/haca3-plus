@@ -1735,3 +1735,101 @@ class HACA3:
                 f"{rec_image.min():.3f} - "
                 f"{rec_image.max():.3f}"
             )
+            # ==================================================
+            # SAVE INTERMEDIATE SOURCE + ATTENTION VOLUMES
+            # ==================================================
+            
+            if save_intermediate:
+            
+                intermediate_out_dir = Path(
+                    intermediate_out_dir
+                )
+            
+                intermediate_out_dir.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+            
+            
+                # ----------------------------------------------
+                # SAVE SOURCE IMAGES
+                # ----------------------------------------------
+            
+                for source_idx, source_image in enumerate(
+                    source_images
+                ):
+            
+                    source_np = (
+                        source_image
+                        .detach()
+                        .float()
+                        .cpu()
+                        .numpy()[0, 0]
+                    )
+            
+                    source_obj = nib.Nifti1Image(
+                        source_np,
+                        affine,
+                        header=header.copy(),
+                    )
+            
+                    source_path = (
+                        intermediate_out_dir
+                        / f"source_{source_idx}.nii.gz"
+                    )
+            
+                    nib.save(
+                        source_obj,
+                        str(source_path),
+                    )
+            
+                    print(
+                        f"Saved source: {source_path}"
+                    )
+            
+            
+                # ----------------------------------------------
+                # SAVE ATTENTION MAPS
+                #
+                # attention:
+                # [B, N, D, H, W]
+                # ----------------------------------------------
+            
+                attention_np = (
+                    attention
+                    .detach()
+                    .float()
+                    .cpu()
+                    .numpy()[0]
+                )
+            
+                for source_idx in range(
+                    attention_np.shape[0]
+                ):
+            
+                    attention_vol = (
+                        attention_np[source_idx]
+                    )
+            
+                    attention_obj = nib.Nifti1Image(
+                        attention_vol,
+                        affine,
+                        header=header.copy(),
+                    )
+            
+                    attention_path = (
+                        intermediate_out_dir
+                        / (
+                            f"target_{target_index:02d}_"
+                            f"attention_source_{source_idx}.nii.gz"
+                        )
+                    )
+            
+                    nib.save(
+                        attention_obj,
+                        str(attention_path),
+                    )
+            
+                    print(
+                        f"Saved attention: {attention_path}"
+                    )
