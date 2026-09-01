@@ -62,6 +62,8 @@ def save_image_3d(images, file_name):
             .numpy()
         )
 
+        volume = np.flip(volume, axis=1).copy()
+
         volumes.append(volume)
 
     image_save = np.stack(
