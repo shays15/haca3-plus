@@ -1433,7 +1433,8 @@ class HACA3:
         # ======================================================
     
         if target_images is not None:
-    
+        if target_images is not None:
+
             target_images = [
                 image.to(
                     device,
@@ -1441,23 +1442,42 @@ class HACA3:
                 )
                 for image in target_images
             ]
-    
+        
             target_queries = []
-    
+            target_theta_values = []
+        
             with torch.inference_mode():
-    
                 with torch.cuda.amp.autocast():
-    
+        
                     for target_image in target_images:
-    
-                        theta = self.calculate_theta(
+        
+                        # calculate_theta returns:
+                        # thetas, mus, logvars
+                        target_thetas, _, _ = self.calculate_theta(
                             [target_image]
-                        )[0]
-    
-                        eta = self.calculate_eta(
+                        )
+        
+                        theta = target_thetas[0]
+        
+                        # calculate_eta returns a list
+                        target_etas = self.calculate_eta(
                             [target_image]
-                        )[0]
-    
+                        )
+        
+                        eta = target_etas[0]
+        
+                        print(
+                            "target theta:",
+                            type(theta),
+                            theta.shape,
+                        )
+        
+                        print(
+                            "target eta:",
+                            type(eta),
+                            eta.shape,
+                        )
+        
                         query = torch.cat(
                             [
                                 theta,
@@ -1465,11 +1485,15 @@ class HACA3:
                             ],
                             dim=1,
                         )
-    
+        
                         target_queries.append(
                             query
                         )
-    
+        
+                        target_theta_values.append(
+                            theta
+                        )
+            
         else:
     
             target_theta = target_theta.to(
@@ -1606,19 +1630,15 @@ class HACA3:
                     )
     
                     if target_images is not None:
-    
+                
                         target_theta_current = (
-                            self.calculate_theta(
-                                [
-                                    target_images[
-                                        target_index
-                                    ]
-                                ]
-                            )[0]
+                            target_theta_values[
+                                target_index
+                            ]
                         )
-    
+                    
                     else:
-    
+                    
                         target_theta_current = (
                             target_theta[
                                 target_index:
