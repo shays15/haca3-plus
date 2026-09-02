@@ -825,6 +825,7 @@ class HACA3:
         )
         
         batch_size = site_ids.shape[0]
+        print(f"Site IDs: {site_ids.shape[0]}")
         
         do_inter_site = (
             is_train
