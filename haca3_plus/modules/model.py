@@ -629,12 +629,9 @@ class HACA3:
             reconstruction L1
             KLD
             beta PatchNCE
-    
-        The original 2D VGG perceptual loss is disabled because
-        VGG16 cannot directly operate on 3D volumes.
-    
-        Cycle consistency is handled separately and is currently
-        disabled while testing batch-size-1 3D training.
+            2D VGG perceptual loss on 3 slices
+            
+            Cycle consistency is handled separately 
         """
     
         # ======================================================
