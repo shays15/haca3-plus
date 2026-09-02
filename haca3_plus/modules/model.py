@@ -54,13 +54,17 @@ class HACA3:
             out_ch=self.theta_dim
         )
         
-        self.eta_encoder = EtaEncoder3d(
-            in_ch=1,
-            out_ch=self.eta_dim
-        )
+        # self.eta_encoder = EtaEncoder3d(
+        #     in_ch=1,
+        #     out_ch=self.eta_dim
+        # )
         
+        # self.attention_module = AttentionModule3d(
+        #     self.theta_dim + self.eta_dim,
+        #     v_ch=self.beta_dim
+        # )
         self.attention_module = AttentionModule3d(
-            self.theta_dim + self.eta_dim,
+            self.theta_dim,
             v_ch=self.beta_dim
         )
         
@@ -235,15 +239,15 @@ class HACA3:
             betas.append(beta)
         return logits, betas
 
-    def calculate_eta(self, images):
-        if isinstance(images, list):
-            etas = []
-            for image in images:
-                eta = self.eta_encoder(image)
-                etas.append(eta)
-        else:
-            etas = self.eta_encoder(images)
-        return etas
+    # def calculate_eta(self, images):
+    #     if isinstance(images, list):
+    #         etas = []
+    #         for image in images:
+    #             eta = self.eta_encoder(image)
+    #             etas.append(eta)
+    #     else:
+    #         etas = self.eta_encoder(images)
+    #     return etas
 
     def prepare_source_images(self, image_dicts):
         num_contrasts = len(image_dicts)
@@ -344,11 +348,11 @@ class HACA3:
             [B, theta_dim]
     
         query:
-            [B, theta_dim + eta_dim]
+            [B, theta_dim] # + eta_dim]
     
         keys:
             list of N tensors:
-            each [B, theta_dim + eta_dim]
+            each [B, theta_dim]# + eta_dim]
     
         available_contrast_id:
             [B, N]
@@ -742,20 +746,25 @@ class HACA3:
     
         return loss
 
-    def calculate_cycle_consistency_loss(self, theta_rec, theta_ref, eta_rec, eta_ref, beta_rec, beta_ref,
+    # def calculate_cycle_consistency_loss(self, theta_rec, theta_ref, eta_rec, eta_ref, beta_rec, beta_ref,
+    #                                      is_train=True):
+    def calculate_cycle_consistency_loss(self, theta_rec, theta_ref, beta_rec, beta_ref,
                                          is_train=True):
         theta_loss = self.l1_loss(theta_rec, theta_ref).mean()
-        eta_loss = self.l1_loss(eta_rec, eta_ref).mean()
+        # eta_loss = self.l1_loss(eta_rec, eta_ref).mean()
         beta_loss = self.l1_loss(beta_rec, beta_ref).mean()
 
-        cycle_loss = theta_loss + eta_loss + 5e-2 * beta_loss
+        # cycle_loss = theta_loss + eta_loss + 5e-2 * beta_loss
+        cycle_loss = theta_loss + 5e-2 * beta_loss
         if is_train:
             self.optimizer.zero_grad()
             (5e-2 * cycle_loss).backward()
             self.optimizer.step()
             self.scheduler.step()
-        loss = {'theta_cyc': theta_loss.item(),
-                'eta_cyc': eta_loss.item(),
+        # loss = {'theta_cyc': theta_loss.item(),
+        #         'eta_cyc': eta_loss.item(),
+        #         'beta_cyc': beta_loss.item()}
+         loss = {'theta_cyc': theta_loss.item(),
                 'beta_cyc': beta_loss.item()}
         return loss
 
@@ -772,20 +781,30 @@ class HACA3:
         self.writer.add_scalar(f'{train_or_valid}/total loss', loss['total_loss'], curr_iteration)
         if cycle_loss is not None:
             self.writer.add_scalar(f'{train_or_valid}/theta cycle loss', cycle_loss['theta_cyc'], curr_iteration)
-            self.writer.add_scalar(f'{train_or_valid}/eta cycle loss', cycle_loss['eta_cyc'], curr_iteration)
+            # self.writer.add_scalar(f'{train_or_valid}/eta cycle loss', cycle_loss['eta_cyc'], curr_iteration)
             self.writer.add_scalar(f'{train_or_valid}/beta cycle loss', cycle_loss['beta_cyc'], curr_iteration)
 
     def save_model(self, epoch, file_name):
+        # state = {'epoch': epoch,
+        #          'timestr': self.timestr,
+        #          'beta_encoder': self.beta_encoder.state_dict(),
+        #          'theta_encoder': self.theta_encoder.state_dict(),
+        #          'eta_encoder': self.eta_encoder.state_dict(),
+        #          'decoder': self.decoder.state_dict(),
+        #          'attention_module': self.attention_module.state_dict(),
+        #          'patchifier': self.patchifier.state_dict(),
+        #          'optimizer': self.optimizer.state_dict(),
+        #          'scheduler': self.scheduler.state_dict()}
         state = {'epoch': epoch,
-                 'timestr': self.timestr,
-                 'beta_encoder': self.beta_encoder.state_dict(),
-                 'theta_encoder': self.theta_encoder.state_dict(),
-                 'eta_encoder': self.eta_encoder.state_dict(),
-                 'decoder': self.decoder.state_dict(),
-                 'attention_module': self.attention_module.state_dict(),
-                 'patchifier': self.patchifier.state_dict(),
-                 'optimizer': self.optimizer.state_dict(),
-                 'scheduler': self.scheduler.state_dict()}
+             'timestr': self.timestr,
+             'beta_encoder': self.beta_encoder.state_dict(),
+             'theta_encoder': self.theta_encoder.state_dict(),
+             'eta_encoder': self.eta_encoder.state_dict(),
+             'decoder': self.decoder.state_dict(),
+             'attention_module': self.attention_module.state_dict(),
+             'patchifier': self.patchifier.state_dict(),
+             'optimizer': self.optimizer.state_dict(),
+             'scheduler': self.scheduler.state_dict()}
         torch.save(obj=state, f=file_name)
 
     def image_to_image_translation(
@@ -974,11 +993,11 @@ class HACA3:
                 source_images
             )
     
-            etas_source = (
-                self.calculate_eta(
-                    source_images
-                )
-            )
+            # etas_source = (
+            #     self.calculate_eta(
+            #         source_images
+            #     )
+            # )
     
     
             # ==================================================
@@ -993,43 +1012,61 @@ class HACA3:
                 target_image
             )
     
-            eta_target = (
-                self.calculate_eta(
-                    target_image
-                )
-            )
+            # eta_target = (
+            #     self.calculate_eta(
+            #         target_image
+            #     )
+            # )
     
     
             # ==================================================
             # ATTENTION QUERY / KEYS
             # ==================================================
     
+            # query = torch.cat(
+            #     [
+            #         theta_target,
+            #         eta_target,
+            #     ],
+            #     dim=1,
+            # )
             query = torch.cat(
                 [
-                    theta_target,
-                    eta_target,
+                    theta_target
                 ],
                 dim=1,
             )
     
     
+            # keys = [
+            #     torch.cat(
+            #         [
+            #             theta,
+            #             eta,
+            #         ],
+            #         dim=1,
+            #     )
+            #     for (
+            #         theta,
+            #         eta,
+            #     ) in zip(
+            #         thetas_source,
+            #         etas_source,
+            #     )
+            # ]
             keys = [
                 torch.cat(
                     [
-                        theta,
-                        eta,
+                        theta
                     ],
                     dim=1,
                 )
                 for (
-                    theta,
-                    eta,
+                    theta
                 ) in zip(
-                    thetas_source,
-                    etas_source,
+                    thetas_source
                 )
             ]
-    
     
             # ==================================================
             # CONTRAST DROPOUT
@@ -1166,9 +1203,9 @@ class HACA3:
                     source_images
                 )
         
-                inter_etas_source = self.calculate_eta(
-                    source_images
-                )
+                # inter_etas_source = self.calculate_eta(
+                #     source_images
+                # )
         
         
                 # --------------------------------------------------
@@ -1213,16 +1250,22 @@ class HACA3:
                     inter_target_image
                 )
         
-                eta_ref = self.calculate_eta(
-                    inter_target_image
-                )
+                # eta_ref = self.calculate_eta(
+                #     inter_target_image
+                # )
         
         
                 # query for OTHER subject/site
+                # inter_query = torch.cat(
+                #     [
+                #         theta_ref,
+                #         eta_ref,
+                #     ],
+                #     dim=1,
+                # )
                 inter_query = torch.cat(
                     [
-                        theta_ref,
-                        eta_ref,
+                        theta_ref
                     ],
                     dim=1,
                 )
@@ -1232,17 +1275,28 @@ class HACA3:
                 # Source keys remain associated with source anatomy
                 # --------------------------------------------------
         
-                inter_keys = [
+                # inter_keys = [
+                #     torch.cat(
+                #         [
+                #             theta,
+                #             eta,
+                #         ],
+                #         dim=1,
+                #     )
+                #     for theta, eta in zip(
+                #         inter_thetas_source,
+                #         inter_etas_source,
+                #     )
+                # ]
+               inter_keys = [
                     torch.cat(
                         [
-                            theta,
-                            eta,
+                            theta
                         ],
                         dim=1,
                     )
-                    for theta, eta in zip(
-                        inter_thetas_source,
-                        inter_etas_source,
+                    for theta in zip(
+                        inter_thetas_source
                     )
                 ]
         
@@ -1280,9 +1334,9 @@ class HACA3:
                     inter_rec_image
                 )
         
-                eta_rec = self.calculate_eta(
-                    inter_rec_image
-                )
+                # eta_rec = self.calculate_eta(
+                #     inter_rec_image
+                # )
         
                 beta_rec_logit = self.beta_encoder(
                     inter_rec_image
@@ -1332,19 +1386,23 @@ class HACA3:
                     theta_ref.detach(),
                 ).mean()
         
-                eta_cyc = self.l1_loss(
-                    eta_rec,
-                    eta_ref.detach(),
-                ).mean()
+                # eta_cyc = self.l1_loss(
+                #     eta_rec,
+                #     eta_ref.detach(),
+                # ).mean()
         
                 beta_cyc = self.l1_loss(
                     beta_rec,
                     inter_beta_fusion.detach(),
                 ).mean()
         
+                # cycle_total = (
+                #     theta_cyc
+                #     + eta_cyc
+                #     + 5e-2 * beta_cyc
+                # )
                 cycle_total = (
                     theta_cyc
-                    + eta_cyc
                     + 5e-2 * beta_cyc
                 )
         
@@ -1370,11 +1428,15 @@ class HACA3:
             self.scheduler.step()
         
         
+            # cycle_loss = {
+            #     "theta_cyc": theta_cyc.item(),
+            #     "eta_cyc": eta_cyc.item(),
+            #     "beta_cyc": beta_cyc.item(),
+            # } 
             cycle_loss = {
                 "theta_cyc": theta_cyc.item(),
-                "eta_cyc": eta_cyc.item(),
                 "beta_cyc": beta_cyc.item(),
-            }    
+            } 
     
         # ======================================================
         # TENSORBOARD
@@ -1444,7 +1506,7 @@ class HACA3:
             self.theta_encoder.train()
     
             # Eta stays frozen
-            self.eta_encoder.eval()
+            # self.eta_encoder.eval()
     
             self.decoder.train()
             self.attention_module.train()
@@ -1478,10 +1540,15 @@ class HACA3:
                     f"beta {loss['beta_loss']:.3f}"
                 )
                 
+                # if loss.get("cycle_loss") is not None:
+                #     desc += (
+                #         f" | θcyc {loss['cycle_loss']['theta_cyc']:.3f}"
+                #         f" | ηcyc {loss['cycle_loss']['eta_cyc']:.3f}"
+                #         f" | βcyc {loss['cycle_loss']['beta_cyc']:.3f}"
+                #     )
                 if loss.get("cycle_loss") is not None:
                     desc += (
                         f" | θcyc {loss['cycle_loss']['theta_cyc']:.3f}"
-                        f" | ηcyc {loss['cycle_loss']['eta_cyc']:.3f}"
                         f" | βcyc {loss['cycle_loss']['beta_cyc']:.3f}"
                     )
                 
@@ -1494,7 +1561,7 @@ class HACA3:
     
             self.beta_encoder.eval()
             self.theta_encoder.eval()
-            self.eta_encoder.eval()
+            # self.eta_encoder.eval()
             self.decoder.eval()
             self.attention_module.eval()
             self.patchifier.eval()
@@ -1531,12 +1598,24 @@ class HACA3:
                             f"beta {loss['beta_loss']:.3f}"
                         )
                     )
+    # def harmonize(
+    #     self,
+    #     source_images,
+    #     target_images,
+    #     target_theta,
+    #     target_eta,
+    #     out_paths,
+    #     affine,
+    #     header,
+    #     norm_vals,
+    #     save_intermediate=False,
+    #     intermediate_out_dir=None,
+    # ):
     def harmonize(
         self,
         source_images,
         target_images,
         target_theta,
-        target_eta,
         out_paths,
         affine,
         header,
@@ -1587,7 +1666,7 @@ class HACA3:
     
         self.beta_encoder.eval()
         self.theta_encoder.eval()
-        self.eta_encoder.eval()
+        # self.eta_encoder.eval()
         self.attention_module.eval()
         self.decoder.eval()
     
@@ -1638,9 +1717,9 @@ class HACA3:
                 # η artifact representation
                 # ------------------------------------------------
     
-                etas_source = self.calculate_eta(
-                    source_images
-                )
+                # etas_source = self.calculate_eta(
+                #     source_images
+                # )
     
                 # ------------------------------------------------
                 # Attention keys
@@ -1649,21 +1728,32 @@ class HACA3:
                 # [B, theta_dim + eta_dim]
                 # ------------------------------------------------
     
+                # keys = [
+                #     torch.cat(
+                #         [
+                #             theta,
+                #             eta,
+                #         ],
+                #         dim=1,
+                #     )
+                #     for theta, eta in zip(
+                #         thetas_source,
+                #         etas_source,
+                #     )
+                # ]
                 keys = [
                     torch.cat(
                         [
-                            theta,
-                            eta,
+                            theta
                         ],
                         dim=1,
                     )
-                    for theta, eta in zip(
-                        thetas_source,
-                        etas_source,
+                    for theta in zip(
+                        thetas_source
                     )
                 ]
                 print("theta type:", type(thetas_source))
-                print("eta type:", type(etas_source))
+                # print("eta type:", type(etas_source))
                 
                 for i, theta in enumerate(thetas_source):
                     print(
@@ -1672,12 +1762,12 @@ class HACA3:
                         theta.shape,
                     )
                 
-                for i, eta in enumerate(etas_source):
-                    print(
-                        f"eta {i}:",
-                        type(eta),
-                        eta.shape,
-                    )
+                # for i, eta in enumerate(etas_source):
+                #     print(
+                #         f"eta {i}:",
+                #         type(eta),
+                #         eta.shape,
+                #     )
     
         # ======================================================
         # TARGET REPRESENTATION
@@ -1710,11 +1800,11 @@ class HACA3:
                         theta = target_thetas[0]
         
                         # calculate_eta returns a list
-                        target_etas = self.calculate_eta(
-                            [target_image]
-                        )
+                        # target_etas = self.calculate_eta(
+                        #     [target_image]
+                        # )
         
-                        eta = target_etas[0]
+                        # eta = target_etas[0]
         
                         print(
                             "target theta:",
@@ -1722,16 +1812,22 @@ class HACA3:
                             theta.shape,
                         )
         
-                        print(
-                            "target eta:",
-                            type(eta),
-                            eta.shape,
-                        )
+                        # print(
+                        #     "target eta:",
+                        #     type(eta),
+                        #     eta.shape,
+                        # )
         
+                        # query = torch.cat(
+                        #     [
+                        #         theta,
+                        #         eta,
+                        #     ],
+                        #     dim=1,
+                        # )
                         query = torch.cat(
                             [
-                                theta,
-                                eta,
+                                theta
                             ],
                             dim=1,
                         )
@@ -1750,15 +1846,26 @@ class HACA3:
                 device
             )
     
-            target_eta = target_eta.to(
-                device
-            )
+            # target_eta = target_eta.to(
+            #     device
+            # )
     
+            # target_queries = [
+            #     torch.cat(
+            #         [
+            #             target_theta[i:i + 1],
+            #             target_eta[i:i + 1],
+            #         ],
+            #         dim=1,
+            #     )
+            #     for i in range(
+            #         target_theta.shape[0]
+            #     )
+            # ]
             target_queries = [
                 torch.cat(
                     [
-                        target_theta[i:i + 1],
-                        target_eta[i:i + 1],
+                        target_theta[i:i + 1]
                     ],
                     dim=1,
                 )
