@@ -764,7 +764,7 @@ class HACA3:
         # loss = {'theta_cyc': theta_loss.item(),
         #         'eta_cyc': eta_loss.item(),
         #         'beta_cyc': beta_loss.item()}
-         loss = {'theta_cyc': theta_loss.item(),
+        loss = {'theta_cyc': theta_loss.item(),
                 'beta_cyc': beta_loss.item()}
         return loss
 
