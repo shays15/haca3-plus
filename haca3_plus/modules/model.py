@@ -1030,12 +1030,7 @@ class HACA3:
             #     ],
             #     dim=1,
             # )
-            query = torch.cat(
-                [
-                    theta_target
-                ],
-                dim=1,
-            )
+            query = theta_target
     
     
             # keys = [
@@ -1054,19 +1049,7 @@ class HACA3:
             #         etas_source,
             #     )
             # ]
-            keys = [
-                torch.cat(
-                    [
-                        theta
-                    ],
-                    dim=1,
-                )
-                for (
-                    theta
-                ) in zip(
-                    thetas_source
-                )
-            ]
+            keys = thetas_source
     
             # ==================================================
             # CONTRAST DROPOUT
@@ -1227,16 +1210,16 @@ class HACA3:
                 inter_target_image = inter_target_image[perm]
                 inter_contrast_id = inter_contrast_id[perm]
 
-                print("site_ids:", site_ids)
-                print("perm:", perm)
-                print("source subjects:", image_dicts[0]["subj_sess"])
-                print(
-                    "target subjects:",
-                    [
-                        image_dicts[0]["subj_sess"][i]
-                        for i in perm.cpu().tolist()
-                    ]
-                )
+                #print("site_ids:", site_ids)
+                #print("perm:", perm)
+                #print("source subjects:", image_dicts[0]["subj_sess"])
+                # print(
+                #     "target subjects:",
+                #     [
+                #         image_dicts[0]["subj_sess"][i]
+                #         for i in perm.cpu().tolist()
+                #     ]
+                # )
         
                 # --------------------------------------------------
                 # Encode target θ / η
@@ -1263,14 +1246,8 @@ class HACA3:
                 #     ],
                 #     dim=1,
                 # )
-                inter_query = torch.cat(
-                    [
-                        theta_ref
-                    ],
-                    dim=1,
-                )
-        
-        
+                inter_query = theta_ref
+                
                 # --------------------------------------------------
                 # Source keys remain associated with source anatomy
                 # --------------------------------------------------
@@ -1288,19 +1265,8 @@ class HACA3:
                 #         inter_etas_source,
                 #     )
                 # ]
-                inter_keys = [
-                    torch.cat(
-                        [
-                            theta
-                        ],
-                        dim=1,
-                    )
-                    for theta in zip(
-                        inter_thetas_source
-                    )
-                ]
-        
-        
+                inter_keys = inter_thetas_source
+
                 # --------------------------------------------------
                 # Synthesize source anatomy using shuffled target θ
                 # --------------------------------------------------
@@ -1741,17 +1707,8 @@ class HACA3:
                 #         etas_source,
                 #     )
                 # ]
-                keys = [
-                    torch.cat(
-                        [
-                            theta
-                        ],
-                        dim=1,
-                    )
-                    for theta in zip(
-                        thetas_source
-                    )
-                ]
+                keys = thetas_source
+                
                 print("theta type:", type(thetas_source))
                 # print("eta type:", type(etas_source))
                 
@@ -1825,12 +1782,7 @@ class HACA3:
                         #     ],
                         #     dim=1,
                         # )
-                        query = torch.cat(
-                            [
-                                theta
-                            ],
-                            dim=1,
-                        )
+                        query = theta
         
                         target_queries.append(
                             query
@@ -1862,17 +1814,7 @@ class HACA3:
             #         target_theta.shape[0]
             #     )
             # ]
-            target_queries = [
-                torch.cat(
-                    [
-                        target_theta[i:i + 1]
-                    ],
-                    dim=1,
-                )
-                for i in range(
-                    target_theta.shape[0]
-                )
-            ]
+            target_queries = target_theta[i:i + 1]
     
         # ======================================================
         # STACK SOURCE β LOGITS / KEYS
