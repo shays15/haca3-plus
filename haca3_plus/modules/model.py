@@ -1186,31 +1186,36 @@ class HACA3:
                     self.device,
                     non_blocking=True,
                 )
-        
+
+                inter_target_image = inter_target_image[perm]
+                inter_contrast_id = inter_contrast_id[perm]
+
+                print("site_ids:", site_ids)
+                print("perm:", perm)
+                print("source subjects:", image_dicts[0]["subj_sess"])
+                print(
+                    "target subjects:",
+                    [
+                        image_dicts[0]["subj_sess"][i]
+                        for i in perm.cpu().tolist()
+                    ]
+                )
         
                 # --------------------------------------------------
                 # Encode target θ / η
                 # --------------------------------------------------
         
                 (
-                    theta_target,
+                    theta_ref,
                     _,
                     _,
                 ) = self.calculate_theta(
                     inter_target_image
                 )
         
-                eta_target = self.calculate_eta(
+                eta_ref = self.calculate_eta(
                     inter_target_image
                 )
-        
-        
-                # --------------------------------------------------
-                # Shuffle target representation across subjects
-                # --------------------------------------------------
-        
-                theta_ref = theta_target[perm]
-                eta_ref = eta_target[perm]
         
         
                 # query for OTHER subject/site
