@@ -93,7 +93,7 @@ class HACA3:
             self.patchifier.load_state_dict(self.checkpoint['patchifier'])
         self.beta_encoder.to(self.device)
         self.theta_encoder.to(self.device)
-        self.eta_encoder.to(self.device)
+        # self.eta_encoder.to(self.device)
         self.decoder.to(self.device)
         self.attention_module.to(self.device)
         self.patchifier.to(self.device)
