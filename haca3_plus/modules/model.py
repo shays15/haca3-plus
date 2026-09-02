@@ -649,22 +649,40 @@ class HACA3:
             ref_image[mask],
         ).mean()
     
-    
         # ======================================================
-        # 2. PERCEPTUAL LOSS
+        # 2. 2D PERCEPTUAL LOSS
         # ======================================================
-        #
-        # Original HACA3+ used a 2D VGG16 perceptual loss.
-        # Do not apply that directly to:
-        #
-        #     [B, C, D, H, W]
-        #
-        # For now this term is disabled.
-        # ======================================================
-    
-        perceptual_loss = torch.tensor(
-            0.0,
-            device=rec_image.device,
+        
+        D = rec_image.shape[2]
+        
+        slice_ids = [
+            D // 4,
+            D // 2,
+            3 * D // 4,
+        ]
+        
+        perceptual_loss = 0.0
+        
+        for slice_idx in slice_ids:
+        
+            rec_slice = rec_image[
+                :, :, slice_idx, :, :
+            ]
+        
+            target_slice = target_image[
+                :, :, slice_idx, :, :
+            ]
+        
+            perceptual_loss = (
+                perceptual_loss
+                + self.perceptual_loss(
+                    rec_slice,
+                    target_slice,
+                )
+            )
+        
+        perceptual_loss = (
+            perceptual_loss / len(slice_ids)
         )
     
     
