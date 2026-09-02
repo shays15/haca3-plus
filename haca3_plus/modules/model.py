@@ -1128,7 +1128,7 @@ class HACA3:
         # ======================================================
     
         if (
-            batch_id != 10
+            batch_id % 10 == 0:
         ):
     
             file_name = os.path.join(
@@ -1158,7 +1158,7 @@ class HACA3:
         cycle_loss = None
         
         if do_inter_site:
-            print("BEGINNING INTER-SITE CYCLE TRAINING")
+            #print("BEGINNING INTER-SITE CYCLE TRAINING")
         
             # --------------------------------------------------
             # Cross-subject permutation
@@ -1664,10 +1664,10 @@ class HACA3:
             for image in source_images
         ]
     
-        print(
-            "Source shapes:",
-            [tuple(x.shape) for x in source_images],
-        )
+        # print(
+        #     "Source shapes:",
+        #     [tuple(x.shape) for x in source_images],
+        # )
     
         # ======================================================
         # FORWARD SOURCE ENCODERS
@@ -1723,15 +1723,15 @@ class HACA3:
                 # ]
                 keys = thetas_source
                 
-                print("theta type:", type(thetas_source))
+                # print("theta type:", type(thetas_source))
                 # print("eta type:", type(etas_source))
                 
-                for i, theta in enumerate(thetas_source):
-                    print(
-                        f"theta {i}:",
-                        type(theta),
-                        theta.shape,
-                    )
+                # for i, theta in enumerate(thetas_source):
+                #     print(
+                #         f"theta {i}:",
+                #         type(theta),
+                #         theta.shape,
+                #     )
                 
                 # for i, eta in enumerate(etas_source):
                 #     print(
@@ -1777,11 +1777,11 @@ class HACA3:
         
                         # eta = target_etas[0]
         
-                        print(
-                            "target theta:",
-                            type(theta),
-                            theta.shape,
-                        )
+                        # print(
+                        #     "target theta:",
+                        #     type(theta),
+                        #     theta.shape,
+                        # )
         
                         # print(
                         #     "target eta:",
@@ -1853,15 +1853,15 @@ class HACA3:
             dim=1,
         )
     
-        print(
-            "logits_stack:",
-            logits_stack.shape,
-        )
+        # print(
+        #     "logits_stack:",
+        #     logits_stack.shape,
+        # )
     
-        print(
-            "keys_stack:",
-            keys_stack.shape,
-        )
+        # print(
+        #     "keys_stack:",
+        #     keys_stack.shape,
+        # )
     
         # ======================================================
         # ALL SOURCE MODALITIES AVAILABLE
