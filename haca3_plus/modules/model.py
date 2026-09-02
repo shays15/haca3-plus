@@ -666,7 +666,7 @@ class HACA3:
                 :, :, slice_idx, :, :
             ]
         
-            target_slice = target_image[
+            target_slice = ref_image[
                 :, :, slice_idx, :, :
             ]
         
