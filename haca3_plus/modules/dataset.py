@@ -34,6 +34,11 @@ expected_shape = (
     224,
     192,
 )
+crop_shape = (
+    192,
+    192,
+    192,
+)
 
 
 # ==========================================================
@@ -97,7 +102,7 @@ def get_tensor_from_fpath(
     if fpath is None:
 
         image = torch.zeros(
-            [1, *expected_shape],
+            [1, *crop_shape],
             dtype=torch.float32,
         )
 
@@ -110,7 +115,7 @@ def get_tensor_from_fpath(
     if not fpath.exists():
 
         image = torch.zeros(
-            [1, *expected_shape],
+            [1, *crop_shape],
             dtype=torch.float32,
         )
 
@@ -153,6 +158,22 @@ def get_tensor_from_fpath(
             f"Expected: {expected_shape}\n"
             f"Got:      {image.shape}"
         )
+        
+    start = [
+        (image.shape[i] - crop_shape[i]) // 2
+        for i in range(3)
+    ]
+    
+    end = [
+        start[i] + crop_shape[i]
+        for i in range(3)
+    ]
+    
+    image = image[
+        start[0]:end[0],
+        start[1]:end[1],
+        start[2]:end[2],
+    ]
 
 
     # ------------------------------------------------------
