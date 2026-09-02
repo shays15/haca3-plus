@@ -53,7 +53,11 @@ def save_image_3d(images, file_name):
             .cpu()
         )
 
-        # Batch size must be 1 for this visualization
+        # If a batch is provided, save the first sample
+        if image.ndim == 5:
+            image = image[0]
+    
+        # Now expect [C, D, H, W]
         assert image.shape[0] == 1
 
         # [1,1,D,H,W] -> [D,H,W]
