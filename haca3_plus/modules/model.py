@@ -1288,7 +1288,7 @@ class HACA3:
                 #         inter_etas_source,
                 #     )
                 # ]
-               inter_keys = [
+                inter_keys = [
                     torch.cat(
                         [
                             theta
