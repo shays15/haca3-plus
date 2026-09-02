@@ -799,7 +799,6 @@ class HACA3:
              'timestr': self.timestr,
              'beta_encoder': self.beta_encoder.state_dict(),
              'theta_encoder': self.theta_encoder.state_dict(),
-             'eta_encoder': self.eta_encoder.state_dict(),
              'decoder': self.decoder.state_dict(),
              'attention_module': self.attention_module.state_dict(),
              'patchifier': self.patchifier.state_dict(),
