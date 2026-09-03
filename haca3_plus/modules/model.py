@@ -658,7 +658,7 @@ class HACA3:
         #     3 * D // 4,
         # ]
         
-        perceptual_loss = torch.tensor(0.0, device=device)
+        perceptual_loss = torch.tensor(0.0, device=self.device)
         
         # for slice_idx in slice_ids:
         
@@ -687,7 +687,7 @@ class HACA3:
         # 3. KLD LOSS
         # ======================================================
     
-        kld_loss = torch.tensor(0.0, device=device)
+        kld_loss = torch.tensor(0.0, device=self.device)
         # kld_loss = self.kld_loss(
         #     mu,
         #     logvar,
@@ -714,7 +714,7 @@ class HACA3:
         #     positive_feature.detach(),
         #     negative_feature.detach(),
         # )
-        beta_loss = torch.tensor(0.0, device=device)
+        beta_loss = torch.tensor(0.0, device=self.device)
     
     
         # ======================================================
@@ -770,8 +770,8 @@ class HACA3:
         # theta_loss = self.l1_loss(theta_rec, theta_ref).mean()
         # eta_loss = self.l1_loss(eta_rec, eta_ref).mean()
         # beta_loss = self.l1_loss(beta_rec, beta_ref).mean()
-        theta_loss = torch.tensor(0.0, device=device)
-        beta_loss = torch.tensor(0.0, device=device)
+        theta_loss = torch.tensor(0.0, device=self.device)
+        beta_loss = torch.tensor(0.0, device=self.device)
 
         # cycle_loss = theta_loss + eta_loss + 5e-2 * beta_loss
         cycle_loss = theta_loss + 5e-2 * beta_loss
