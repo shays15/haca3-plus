@@ -1333,7 +1333,8 @@ class HACA3:
                 )
         
                 if (
-                    batch_id != 10
+                    batch_id % 10 == 0
+                    and epoch % 10 == 0
                 ):
             
                     file_name = os.path.join(
