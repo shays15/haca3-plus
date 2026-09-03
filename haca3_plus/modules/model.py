@@ -1419,7 +1419,7 @@ class HACA3:
         
             # self.scaler.update()
         
-            self.scheduler.step()
+            # self.scheduler.step()
         
         
             # cycle_loss = {
