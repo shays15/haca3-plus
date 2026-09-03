@@ -1470,6 +1470,7 @@ class HACA3:
         self,
         epochs,
     ):
+        fixed_batch = next(iter(self.train_loader))
     
         for epoch in range(
             self.start_epoch,
