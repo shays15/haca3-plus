@@ -41,6 +41,8 @@ def save_image_3d(images, file_name):
 
     Output:
         [D, H, W, N]
+
+    The 4th dimension contains the different input volumes.
     """
 
     volumes = []
@@ -53,26 +55,33 @@ def save_image_3d(images, file_name):
             .cpu()
         )
 
-        # If a batch is provided, save the first sample
+        # [B, 1, D, H, W] -> [1, D, H, W]
         if image.ndim == 5:
             image = image[0]
-    
-        # Now expect [C, D, H, W]
+
+        assert image.ndim == 4
         assert image.shape[0] == 1
 
-        # [1,1,D,H,W] -> [D,H,W]
-        volume = (
-            image[0, 0]
-            .numpy()
-        )
+        # [1, D, H, W] -> [D, H, W]
+        volume = image[0].numpy()
 
-        volume = np.flip(volume, axis=1).copy()
+        volume = np.flip(
+            volume,
+            axis=1,
+        ).copy()
 
         volumes.append(volume)
 
+    # N volumes of [D,H,W]
+    # -> [D,H,W,N]
     image_save = np.stack(
         volumes,
         axis=-1,
+    )
+
+    print(
+        f"Saving {file_name}: "
+        f"shape={image_save.shape}"
     )
 
     nib.save(
