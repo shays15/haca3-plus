@@ -841,6 +841,7 @@ class HACA3:
                 self.scheduler.state_dict()
                 if self.scheduler is not None
                 else None),
+                }
         torch.save(obj=state, f=file_name)
 
     def image_to_image_translation(
