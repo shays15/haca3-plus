@@ -795,7 +795,17 @@ class HACA3:
     def write_tensorboard(self, loss, epoch, batch_id, train_or_valid='train', cycle_loss=None):
         if train_or_valid == 'train':
             curr_iteration = (epoch - 1) * len(self.train_loader) + batch_id
-            self.writer.add_scalar(f'{train_or_valid}/learning rate', self.scheduler.get_last_lr()[0], curr_iteration)
+        
+            if self.scheduler is not None:
+                lr = self.scheduler.get_last_lr()[0]
+            else:
+                lr = self.optimizer.param_groups[0]["lr"]
+        
+            self.writer.add_scalar(
+                f'{train_or_valid}/learning rate',
+                lr,
+                curr_iteration
+            )
         else:
             curr_iteration = (epoch - 1) * len(self.valid_loader) + batch_id
         self.writer.add_scalar(f'{train_or_valid}/reconstruction loss', loss['rec_loss'], curr_iteration)
