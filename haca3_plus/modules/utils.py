@@ -79,10 +79,10 @@ def save_image_3d(images, file_name):
         axis=-1,
     )
 
-    print(
-        f"Saving {file_name}: "
-        f"shape={image_save.shape}"
-    )
+    # print(
+    #     f"Saving {file_name}: "
+    #     f"shape={image_save.shape}"
+    # )
 
     nib.save(
         nib.Nifti1Image(
