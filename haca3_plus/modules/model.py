@@ -1165,7 +1165,7 @@ class HACA3:
                 ),
             )
 
-            print(f"betas size is {betas.shape}")
+            print("Number of betas:", len(betas))
     
             save_image_3d(
                 source_images
