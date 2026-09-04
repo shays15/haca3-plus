@@ -1709,70 +1709,70 @@ class HACA3:
     
         with torch.inference_mode():
     
-            with torch.cuda.amp.autocast():
+            # with torch.cuda.amp.autocast():
     
-                # ------------------------------------------------
-                # β anatomy representation
-                # ------------------------------------------------
-    
-                logits, betas = self.calculate_beta(
-                    source_images
-                )
-    
-                # ------------------------------------------------
-                # θ contrast representation
-                # ------------------------------------------------
-    
-                thetas_source, _, _ = self.calculate_theta(
-                    source_images
-                )
-    
-                # ------------------------------------------------
-                # η artifact representation
-                # ------------------------------------------------
-    
-                # etas_source = self.calculate_eta(
-                #     source_images
-                # )
-    
-                # ------------------------------------------------
-                # Attention keys
-                #
-                # each key:
-                # [B, theta_dim + eta_dim]
-                # ------------------------------------------------
-    
-                # keys = [
-                #     torch.cat(
-                #         [
-                #             theta,
-                #             eta,
-                #         ],
-                #         dim=1,
-                #     )
-                #     for theta, eta in zip(
-                #         thetas_source,
-                #         etas_source,
-                #     )
-                # ]
-                keys = thetas_source
-                
-                # print("theta type:", type(thetas_source))
-                # print("eta type:", type(etas_source))
-                
-                # for i, theta in enumerate(thetas_source):
-                #     print(
-                #         f"theta {i}:",
-                #         type(theta),
-                #         theta.shape,
-                #     )
-                
-                # for i, eta in enumerate(etas_source):
-                #     print(
-                #         f"eta {i}:",
-                #         type(eta),
-                #         eta.shape,
-                #     )
+            # ------------------------------------------------
+            # β anatomy representation
+            # ------------------------------------------------
+
+            logits, betas = self.calculate_beta(
+                source_images
+            )
+
+            # ------------------------------------------------
+            # θ contrast representation
+            # ------------------------------------------------
+
+            thetas_source, _, _ = self.calculate_theta(
+                source_images
+            )
+
+            # ------------------------------------------------
+            # η artifact representation
+            # ------------------------------------------------
+
+            # etas_source = self.calculate_eta(
+            #     source_images
+            # )
+
+            # ------------------------------------------------
+            # Attention keys
+            #
+            # each key:
+            # [B, theta_dim + eta_dim]
+            # ------------------------------------------------
+
+            # keys = [
+            #     torch.cat(
+            #         [
+            #             theta,
+            #             eta,
+            #         ],
+            #         dim=1,
+            #     )
+            #     for theta, eta in zip(
+            #         thetas_source,
+            #         etas_source,
+            #     )
+            # ]
+            keys = thetas_source
+            
+            # print("theta type:", type(thetas_source))
+            # print("eta type:", type(etas_source))
+            
+            # for i, theta in enumerate(thetas_source):
+            #     print(
+            #         f"theta {i}:",
+            #         type(theta),
+            #         theta.shape,
+            #     )
+            
+            # for i, eta in enumerate(etas_source):
+            #     print(
+            #         f"eta {i}:",
+            #         type(eta),
+            #         eta.shape,
+            #     )
     
         # ======================================================
         # TARGET REPRESENTATION
@@ -1792,54 +1792,54 @@ class HACA3:
             target_theta_values = []
         
             with torch.inference_mode():
-                with torch.cuda.amp.autocast():
+                # with torch.cuda.amp.autocast():
         
-                    for target_image in target_images:
+                for target_image in target_images:
+    
+                    # calculate_theta returns:
+                    # thetas, mus, logvars
+                    target_thetas, _, _ = self.calculate_theta(
+                        [target_image]
+                    )
+    
+                    theta = target_thetas[0]
+    
+                    # calculate_eta returns a list
+                    # target_etas = self.calculate_eta(
+                    #     [target_image]
+                    # )
+    
+                    # eta = target_etas[0]
+    
+                    # print(
+                    #     "target theta:",
+                    #     type(theta),
+                    #     theta.shape,
+                    # )
+    
+                    # print(
+                    #     "target eta:",
+                    #     type(eta),
+                    #     eta.shape,
+                    # )
+    
+                    # query = torch.cat(
+                    #     [
+                    #         theta,
+                    #         eta,
+                    #     ],
+                    #     dim=1,
+                    # )
+                    query = theta
+    
+                    target_queries.append(
+                        query
+                    )
+    
+                    target_theta_values.append(
+                        theta
+                    )
         
-                        # calculate_theta returns:
-                        # thetas, mus, logvars
-                        target_thetas, _, _ = self.calculate_theta(
-                            [target_image]
-                        )
-        
-                        theta = target_thetas[0]
-        
-                        # calculate_eta returns a list
-                        # target_etas = self.calculate_eta(
-                        #     [target_image]
-                        # )
-        
-                        # eta = target_etas[0]
-        
-                        # print(
-                        #     "target theta:",
-                        #     type(theta),
-                        #     theta.shape,
-                        # )
-        
-                        # print(
-                        #     "target eta:",
-                        #     type(eta),
-                        #     eta.shape,
-                        # )
-        
-                        # query = torch.cat(
-                        #     [
-                        #         theta,
-                        #         eta,
-                        #     ],
-                        #     dim=1,
-                        # )
-                        query = theta
-        
-                        target_queries.append(
-                            query
-                        )
-        
-                        target_theta_values.append(
-                            theta
-                        )
-            
         else:
     
             target_theta = target_theta.to(
