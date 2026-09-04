@@ -118,7 +118,7 @@ class HACA3:
         if self.checkpoint is not None:
             self.start_epoch = self.checkpoint['epoch']
             self.optimizer.load_state_dict(self.checkpoint['optimizer'])
-            self.scheduler.load_state_dict(self.checkpoint['scheduler'])
+            # self.scheduler.load_state_dict(self.checkpoint['scheduler'])
             if 'timestr' in self.checkpoint:
                 self.timestr = self.checkpoint['timestr']
         self.start_epoch = self.start_epoch + 1
