@@ -87,7 +87,7 @@ class HACA3:
             self.checkpoint = torch.load(pretrained_haca3, map_location=self.device)
             self.beta_encoder.load_state_dict(self.checkpoint['beta_encoder'])
             self.theta_encoder.load_state_dict(self.checkpoint['theta_encoder'])
-            self.eta_encoder.load_state_dict(self.checkpoint['eta_encoder'])
+            #self.eta_encoder.load_state_dict(self.checkpoint['eta_encoder'])
             self.decoder.load_state_dict(self.checkpoint['decoder'])
             self.attention_module.load_state_dict(self.checkpoint['attention_module'])
             self.patchifier.load_state_dict(self.checkpoint['patchifier'])
