@@ -1149,12 +1149,9 @@ class HACA3:
         # ======================================================
         # SAVE TRAINING EXAMPLES
         # ======================================================
-        # if (
-        #     batch_id % 10 == 0
-        #     and epoch % 10 == 0
-        # ):
         if (
             batch_id % 10 == 0
+            and epoch % 10 == 0
         ):
     
             file_name = os.path.join(
@@ -1169,6 +1166,8 @@ class HACA3:
             )
 
             print("Number of betas:", len(betas))
+            for i, beta in enumerate(betas):
+                print(f"beta {i} shape: {beta.shape}")
     
             save_image_3d(
                 source_images
