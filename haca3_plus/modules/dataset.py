@@ -13,12 +13,12 @@ from torch.utils.data.dataset import Dataset
 # SETTINGS
 # ==========================================================
 
-contrast_names = [
-    "T1PRE",
-    "T2",
-    "PD",
-    "FLAIR",
-]
+# contrast_names = [
+#     "T1PRE",
+#     "T2",
+#     "PD",
+#     "FLAIR",
+# ]
 
 # Map the HACA3 contrast names to patterns in the RADIFOX /
 # TREAT-MS filenames.
