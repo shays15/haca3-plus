@@ -1164,6 +1164,8 @@ class HACA3:
                     f"intra-site.nii.gz"
                 ),
             )
+
+            print(f"betas size is {betas.shape}")
     
             save_image_3d(
                 source_images
