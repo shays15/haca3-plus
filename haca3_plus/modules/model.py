@@ -659,7 +659,7 @@ class HACA3:
             3 * D // 4,
         ]
         
-        # perceptual_loss = torch.tensor(0.0, device=self.device)
+        perceptual_loss = torch.tensor(0.0, device=self.device)
         
         for slice_idx in slice_ids:
         
