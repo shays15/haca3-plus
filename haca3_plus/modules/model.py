@@ -651,71 +651,71 @@ class HACA3:
         # 2. 2D PERCEPTUAL LOSS
         # ======================================================
         
-        # D = rec_image.shape[2]
+        D = rec_image.shape[2]
         
-        # slice_ids = [
-        #     D // 4,
-        #     D // 2,
-        #     3 * D // 4,
-        # ]
+        slice_ids = [
+            D // 4,
+            D // 2,
+            3 * D // 4,
+        ]
         
-        perceptual_loss = torch.tensor(0.0, device=self.device)
+        # perceptual_loss = torch.tensor(0.0, device=self.device)
         
-        # for slice_idx in slice_ids:
+        for slice_idx in slice_ids:
         
-        #     rec_slice = rec_image[
-        #         :, :, slice_idx, :, :
-        #     ]
+            rec_slice = rec_image[
+                :, :, slice_idx, :, :
+            ]
         
-        #     target_slice = ref_image[
-        #         :, :, slice_idx, :, :
-        #     ]
+            target_slice = ref_image[
+                :, :, slice_idx, :, :
+            ]
         
-        #     perceptual_loss = (
-        #         perceptual_loss
-        #         + self.perceptual_loss(
-        #             rec_slice,
-        #             target_slice,
-        #         )
-        #     )
+            perceptual_loss = (
+                perceptual_loss
+                + self.perceptual_loss(
+                    rec_slice,
+                    target_slice,
+                )
+            )
         
-        # perceptual_loss = (
-        #     perceptual_loss / len(slice_ids)
-        # )
+        perceptual_loss = (
+            perceptual_loss / len(slice_ids)
+        )
     
     
         # ======================================================
         # 3. KLD LOSS
         # ======================================================
     
-        kld_loss = torch.tensor(0.0, device=self.device)
-        # kld_loss = self.kld_loss(
-        #     mu,
-        #     logvar,
-        # ).mean()
+        # kld_loss = torch.tensor(0.0, device=self.device)
+        kld_loss = self.kld_loss(
+            mu,
+            logvar,
+        ).mean()
     
     
         # ======================================================
         # 4. BETA PATCHNCE LOSS
         # ======================================================
     
-        # (
-        #     query_feature,
-        #     positive_feature,
-        #     negative_feature,
-        # ) = self.calculate_features_for_contrastive_loss(
-        #     betas,
-        #     source_images,
-        #     available_contrast_id,
-        # )
+        (
+            query_feature,
+            positive_feature,
+            negative_feature,
+        ) = self.calculate_features_for_contrastive_loss(
+            betas,
+            source_images,
+            available_contrast_id,
+        )
     
     
-        # beta_loss = self.contrastive_loss(
-        #     query_feature,
-        #     positive_feature.detach(),
-        #     negative_feature.detach(),
-        # )
-        beta_loss = torch.tensor(0.0, device=self.device)
+        beta_loss = self.contrastive_loss(
+            query_feature,
+            positive_feature.detach(),
+            negative_feature.detach(),
+        )
+        # beta_loss = torch.tensor(0.0, device=self.device)
     
     
         # ======================================================
@@ -772,11 +772,11 @@ class HACA3:
     #                                      is_train=True):
     def calculate_cycle_consistency_loss(self, theta_rec, theta_ref, beta_rec, beta_ref,
                                          is_train=True):
-        # theta_loss = self.l1_loss(theta_rec, theta_ref).mean()
+        theta_loss = self.l1_loss(theta_rec, theta_ref).mean()
         # eta_loss = self.l1_loss(eta_rec, eta_ref).mean()
-        # beta_loss = self.l1_loss(beta_rec, beta_ref).mean()
-        theta_loss = torch.tensor(0.0, device=self.device)
-        beta_loss = torch.tensor(0.0, device=self.device)
+        beta_loss = self.l1_loss(beta_rec, beta_ref).mean()
+        # theta_loss = torch.tensor(0.0, device=self.device)
+        # beta_loss = torch.tensor(0.0, device=self.device)
 
         # cycle_loss = theta_loss + eta_loss + 5e-2 * beta_loss
         cycle_loss = theta_loss + 5e-2 * beta_loss
