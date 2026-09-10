@@ -479,136 +479,323 @@ class HACA3:
             logit_fusion,
             beta_fusion
         )
-
     def calculate_features_for_contrastive_loss(
         self,
         betas,
         source_images,
         available_contrast_id,
     ):
+        """
+        Calculate query, positive, and negative PatchNCE features
+        independently for each subject in the batch.
     
-        # Each list contains N tensors of:
-        # [B, 1, D, H, W]
-        #
-        # Stack modality dimension:
+        betas:
+            list of N tensors, each [B, 1, D, H, W]
+    
+        source_images:
+            list of N tensors, each [B, 1, D, H, W]
+    
+        available_contrast_id:
+            tensor/list describing available contrasts per subject
+
+        Returns:
+            query_features_list
+            positive_features_list
+            negative_features_list
+    
+        Each list has length B.
+        """
+
         # [B, N, 1, D, H, W]
+        betas_stack = torch.stack(
+            betas,
+            dim=1,
+        )
     
-        betas_stack = torch.stack(betas, dim=1)
-        source_images_stack = torch.stack(source_images, dim=1)
+        source_stack = torch.stack(
+            source_images,
+            dim=1,
+        )
+
+        B = betas_stack.shape[0]
+        N = betas_stack.shape[1]
     
-        B, N = available_contrast_id.shape
+        query_features_list = []
+        positive_features_list = []
+        negative_features_list = []
+
+        for b in range(B):
     
-        query_features = []
-        positive_features = []
-        negative_features = []
+            # -------------------------------------------------
+            # Find available contrasts for this subject
+            # -------------------------------------------------
     
-        for subject_id in range(B):
+            if isinstance(available_contrast_id, torch.Tensor):
     
-            available_ids = torch.where(
-                available_contrast_id[subject_id] > 0
-            )[0]
+                avail = available_contrast_id[b]
     
-            # Pick one available modality as the query
-            query_idx = available_ids[
-                torch.randint(
-                    len(available_ids),
-                    (1,),
-                    device=available_ids.device
-                )
-            ].item()
+                if avail.ndim == 0:
+                    available_ids = [int(avail.item())]
     
-            # --------------------------------
-            # Query
-            # --------------------------------
+                else:
+                    available_ids = torch.where(
+                        avail > 0
+                    )[0].tolist()
     
-            query_image = source_images_stack[
-                subject_id:subject_id + 1,
-                query_idx
+            else:
+                available_ids = available_contrast_id[b]
+
+            if len(available_ids) == 0:
+                continue
+
+            # -------------------------------------------------
+            # Pick query contrast
+            # -------------------------------------------------
+    
+            query_contrast_id = random.choice(
+                available_ids
+            )
+    
+            # Original image = query
+            query_img = source_stack[
+                b:b+1,
+                query_contrast_id,
             ]
-            #print("source_images_stack:", source_images_stack.shape)
-            #print("betas_stack:", betas_stack.shape)
-    
-            query_feature = self.patchifier(
-                query_image
-            ).flatten(start_dim=2)
-    
-            # --------------------------------
-            # Positive
-            # beta from same modality
-            # --------------------------------
-    
+
+            # Corresponding beta = positive
             positive_beta = betas_stack[
-                subject_id:subject_id + 1,
-                query_idx
+                b:b+1,
+                query_contrast_id,
             ]
-            #print("query image:", query_image.shape)
-            #print("positive beta:", positive_beta.shape)
-            
+    
+            # -------------------------------------------------
+            # Patchify query and positive
+            # -------------------------------------------------
+
+            query_feature = self.patchifier(
+                query_img
+            )
+    
             positive_feature = self.patchifier(
                 positive_beta
-            ).flatten(start_dim=2)
+            )
     
-            # --------------------------------
-            # Negatives
-            # other available modalities
-            # --------------------------------
+            # Depending on your Patchifier3d implementation,
+            # these may already be [B, C, num_patches].
+            #
+            # If patchifier returns [B,C,d,h,w], flatten spatial dims:
+            if query_feature.ndim == 5:
     
-            subject_negative_features = []
+                query_feature = query_feature.flatten(
+                    start_dim=2
+                )
     
-            for contrast_idx in available_ids:
+                positive_feature = positive_feature.flatten(
+                    start_dim=2
+                )
+
+            # -------------------------------------------------
+            # Collect other contrasts as negatives
+            # -------------------------------------------------
     
-                contrast_idx = contrast_idx.item()
+            negative_ids = [
+                contrast_id
+                for contrast_id in available_ids
+                if contrast_id != query_contrast_id
+            ]
     
-                if contrast_idx == query_idx:
-                    continue
+            negative_features_this_subject = []
+    
+            for neg_id in negative_ids:
     
                 negative_beta = betas_stack[
-                    subject_id:subject_id + 1,
-                    contrast_idx
+                    b:b+1,
+                    neg_id,
                 ]
-    
+
                 negative_feature = self.patchifier(
                     negative_beta
-                ).flatten(start_dim=2)
+                )
     
-                subject_negative_features.append(
+                if negative_feature.ndim == 5:
+                    negative_feature = negative_feature.flatten(
+                        start_dim=2
+                    )
+
+                negative_features_this_subject.append(
                     negative_feature
                 )
     
-            if len(subject_negative_features) > 0:
+            # -------------------------------------------------
+            # Handle subject with only one available contrast
+            # -------------------------------------------------
+
+            if len(negative_features_this_subject) == 0:
     
-                negative_feature = torch.cat(
-                    subject_negative_features,
-                    dim=2
-                )
-    
+                # fallback so PatchNCE still has something valid
+                negative_feature = positive_feature.detach()
+
             else:
-                negative_feature = positive_feature
     
-            query_features.append(query_feature)
-            positive_features.append(positive_feature)
-            negative_features.append(negative_feature)
+                # concatenate PATCHES for this subject
+                #
+                # each tensor:
+                # [1, 128, num_patches]
+                #
+                # result:
+                # [1, 128, num_patches * num_negatives]
+                negative_feature = torch.cat(
+                    negative_features_this_subject,
+                    dim=2,
+                )
+
+            query_features_list.append(
+                query_feature
+            )
     
-        query_features = torch.cat(
-            query_features,
-            dim=0
-        )
+            positive_features_list.append(
+                positive_feature
+            )
     
-        positive_features = torch.cat(
-            positive_features,
-            dim=0
-        )
-    
-        negative_features = torch.cat(
-            negative_features,
-            dim=0
-        )
-    
+            negative_features_list.append(
+                negative_feature
+            )
+
         return (
-            query_features,
-            positive_features,
-            negative_features,
+            query_features_list,
+            positive_features_list,
+            negative_features_list,
         )
+
+    # def calculate_features_for_contrastive_loss(
+    #     self,
+    #     betas,
+    #     source_images,
+    #     available_contrast_id,
+    # ):
+    
+    #     # Each list contains N tensors of:
+    #     # [B, 1, D, H, W]
+    #     #
+    #     # Stack modality dimension:
+    #     # [B, N, 1, D, H, W]
+    
+    #     betas_stack = torch.stack(betas, dim=1)
+    #     source_images_stack = torch.stack(source_images, dim=1)
+    
+    #     B, N = available_contrast_id.shape
+    
+    #     query_features = []
+    #     positive_features = []
+    #     negative_features = []
+    
+    #     for subject_id in range(B):
+    
+    #         available_ids = torch.where(
+    #             available_contrast_id[subject_id] > 0
+    #         )[0]
+    
+    #         # Pick one available modality as the query
+    #         query_idx = available_ids[
+    #             torch.randint(
+    #                 len(available_ids),
+    #                 (1,),
+    #                 device=available_ids.device
+    #             )
+    #         ].item()
+    
+    #         # --------------------------------
+    #         # Query
+    #         # --------------------------------
+    
+    #         query_image = source_images_stack[
+    #             subject_id:subject_id + 1,
+    #             query_idx
+    #         ]
+    #         #print("source_images_stack:", source_images_stack.shape)
+    #         #print("betas_stack:", betas_stack.shape)
+    
+    #         query_feature = self.patchifier(
+    #             query_image
+    #         ).flatten(start_dim=2)
+    
+    #         # --------------------------------
+    #         # Positive
+    #         # beta from same modality
+    #         # --------------------------------
+    
+    #         positive_beta = betas_stack[
+    #             subject_id:subject_id + 1,
+    #             query_idx
+    #         ]
+    #         #print("query image:", query_image.shape)
+    #         #print("positive beta:", positive_beta.shape)
+            
+    #         positive_feature = self.patchifier(
+    #             positive_beta
+    #         ).flatten(start_dim=2)
+    
+    #         # --------------------------------
+    #         # Negatives
+    #         # other available modalities
+    #         # --------------------------------
+    
+    #         subject_negative_features = []
+    
+    #         for contrast_idx in available_ids:
+    
+    #             contrast_idx = contrast_idx.item()
+    
+    #             if contrast_idx == query_idx:
+    #                 continue
+    
+    #             negative_beta = betas_stack[
+    #                 subject_id:subject_id + 1,
+    #                 contrast_idx
+    #             ]
+    
+    #             negative_feature = self.patchifier(
+    #                 negative_beta
+    #             ).flatten(start_dim=2)
+    
+    #             subject_negative_features.append(
+    #                 negative_feature
+    #             )
+    
+    #         if len(subject_negative_features) > 0:
+    
+    #             negative_feature = torch.cat(
+    #                 subject_negative_features,
+    #                 dim=2
+    #             )
+    
+    #         else:
+    #             negative_feature = positive_feature
+    
+    #         query_features.append(query_feature)
+    #         positive_features.append(positive_feature)
+    #         negative_features.append(negative_feature)
+    
+    #     query_features = torch.cat(
+    #         query_features,
+    #         dim=0
+    #     )
+    
+    #     positive_features = torch.cat(
+    #         positive_features,
+    #         dim=0
+    #     )
+    
+    #     negative_features = torch.cat(
+    #         negative_features,
+    #         dim=0
+    #     )
+    
+    #     return (
+    #         query_features,
+    #         positive_features,
+    #         negative_features,
+    #     )
 
     def calculate_loss(
         self,
@@ -699,23 +886,65 @@ class HACA3:
         # 4. BETA PATCHNCE LOSS
         # ======================================================
     
+        # (
+        #     query_feature,
+        #     positive_feature,
+        #     negative_feature,
+        # ) = self.calculate_features_for_contrastive_loss(
+        #     betas,
+        #     source_images,
+        #     available_contrast_id,
+        # )
+    
+    
+        # beta_loss = self.contrastive_loss(
+        #     query_feature,
+        #     positive_feature.detach(),
+        #     negative_feature.detach(),
+        # )
+        # beta_loss = torch.tensor(0.0, device=self.device)
         (
-            query_feature,
-            positive_feature,
-            negative_feature,
+            query_features,
+            positive_features,
+            negative_features,
         ) = self.calculate_features_for_contrastive_loss(
             betas,
             source_images,
             available_contrast_id,
         )
-    
-    
-        beta_loss = self.contrastive_loss(
+        
+        beta_losses = []
+        
+        for (
             query_feature,
-            positive_feature.detach(),
-            negative_feature.detach(),
-        )
-        # beta_loss = torch.tensor(0.0, device=self.device)
+            positive_feature,
+            negative_feature,
+        ) in zip(
+            query_features,
+            positive_features,
+            negative_features,
+        ):
+        
+            loss_b = self.contrastive_loss(
+                query_feature,
+                positive_feature.detach(),
+                negative_feature.detach(),
+            )
+        
+            beta_losses.append(loss_b)
+        
+        if len(beta_losses) > 0:
+        
+            beta_loss = torch.stack(
+                beta_losses
+            ).mean()
+        
+        else:
+        
+            beta_loss = torch.tensor(
+                0.0,
+                device=self.device,
+            )
     
     
         # ======================================================
