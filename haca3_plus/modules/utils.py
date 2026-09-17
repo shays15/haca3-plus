@@ -139,23 +139,119 @@ class PerceptualLoss(nn.Module):
         return F.l1_loss(self.vgg(x), self.vgg(y))
 
 
+# class PatchNCELoss(nn.Module):
+#     def __init__(self, temperature=0.1):
+#         super().__init__()
+#         self.ce_loss = nn.CrossEntropyLoss(reduction='none')
+#         self.temperature = temperature
+
+#     def forward(self, query_feature, positive_feature, negative_feature):
+#         B, C, N = query_feature.shape
+
+#         l_positive = (query_feature * positive_feature).sum(dim=1)[:, :, None]
+#         l_negative = torch.bmm(query_feature.permute(0, 2, 1), negative_feature)
+
+#         logits = torch.cat((l_positive, l_negative), dim=2) / self.temperature
+
+#         predictions = logits.flatten(0, 1)
+#         targets = torch.zeros(B * N, dtype=torch.long).to(query_feature.device)
+#         return self.ce_loss(predictions, targets).mean()
+
 class PatchNCELoss(nn.Module):
+
     def __init__(self, temperature=0.1):
         super().__init__()
-        self.ce_loss = nn.CrossEntropyLoss(reduction='none')
         self.temperature = temperature
 
-    def forward(self, query_feature, positive_feature, negative_feature):
+    def forward(
+        self,
+        query_feature,
+        positive_feature,
+    ):
+        """
+        Cross-contrast PatchNCE.
+
+        query_feature:
+            [B, C, N]
+
+        positive_feature:
+            [B, C, N]
+
+        Patch i in query_feature should match patch i
+        in positive_feature.
+
+        All other spatial patches j != i are negatives.
+        """
+
         B, C, N = query_feature.shape
 
-        l_positive = (query_feature * positive_feature).sum(dim=1)[:, :, None]
-        l_negative = torch.bmm(query_feature.permute(0, 2, 1), negative_feature)
+        # -------------------------------------------------
+        # Normalize features so similarity = cosine similarity
+        # -------------------------------------------------
 
-        logits = torch.cat((l_positive, l_negative), dim=2) / self.temperature
+        query_feature = F.normalize(
+            query_feature,
+            dim=1,
+        )
 
-        predictions = logits.flatten(0, 1)
-        targets = torch.zeros(B * N, dtype=torch.long).to(query_feature.device)
-        return self.ce_loss(predictions, targets).mean()
+        positive_feature = F.normalize(
+            positive_feature,
+            dim=1,
+        )
+
+        # -------------------------------------------------
+        # Pairwise similarities
+        #
+        # [B, N, C] @ [B, C, N]
+        #       ->
+        # [B, N, N]
+        #
+        # similarity[b, i, j]:
+        #     similarity between query patch i
+        #     and positive patch j
+        #
+        # diagonal i == j = true positive
+        # off-diagonal     = negatives
+        # -------------------------------------------------
+
+        logits = torch.bmm(
+            query_feature.permute(0, 2, 1),
+            positive_feature,
+        )
+
+        logits = logits / self.temperature
+
+        # -------------------------------------------------
+        # Correct target for query patch i is positive patch i
+        # -------------------------------------------------
+
+        targets = torch.arange(
+            N,
+            device=query_feature.device,
+        )
+
+        targets = targets.unsqueeze(0).expand(
+            B,
+            -1,
+        )
+
+        # -------------------------------------------------
+        # Flatten batch and patch dimensions
+        # -------------------------------------------------
+
+        logits = logits.reshape(
+            B * N,
+            N,
+        )
+
+        targets = targets.reshape(
+            B * N,
+        )
+
+        return F.cross_entropy(
+            logits,
+            targets,
+        )
 
 
 class KLDivergenceLoss(nn.Module):
