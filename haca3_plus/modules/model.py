@@ -479,6 +479,7 @@ class HACA3:
             logit_fusion,
             beta_fusion
         )
+        
     def calculate_features_for_contrastive_loss(
         self,
         betas,
@@ -486,50 +487,84 @@ class HACA3:
         available_contrast_id,
     ):
         """
-        Calculate query, positive, and negative PatchNCE features
-        independently for each subject in the batch.
+        Calculate PatchNCE features independently for each subject.
     
+        Goal
+        ----
+        Encourage beta to be contrast-invariant while preserving anatomy.
+
+        For each subject:
+            query:
+                beta from contrast A
+    
+            positive:
+                beta from contrast B at the SAME spatial location
+    
+            negatives:
+                beta from contrast B at DIFFERENT spatial locations
+    
+        Therefore:
+
+            beta_T1(p) ~ beta_FLAIR(p)
+    
+        for the same anatomical location p, while:
+    
+            beta_T1(p) != beta_FLAIR(q)
+    
+        for spatially different locations p != q.
+
+        Parameters
+        ----------
         betas:
-            list of N tensors, each [B, 1, D, H, W]
+            List of N tensors, each:
+                [B, 1, D, H, W]
     
         source_images:
-            list of N tensors, each [B, 1, D, H, W]
+            Kept in the function signature for compatibility,
+            but is NOT used for this beta-to-beta contrastive loss.
     
         available_contrast_id:
-            tensor/list describing available contrasts per subject
+            [B, N]
+            Indicates which contrasts exist for each subject.
 
-        Returns:
-            query_features_list
-            positive_features_list
-            negative_features_list
+        Returns
+        -------
+        query_features_list
+        positive_features_list
+        negative_features_list
     
-        Each list has length B.
+        Each list contains one entry per eligible subject.
         """
 
+        # ---------------------------------------------------------
+        # Stack contrast dimension
+        #
+        # N x [B, 1, D, H, W]
+        #       ->
         # [B, N, 1, D, H, W]
+        # ---------------------------------------------------------
+    
         betas_stack = torch.stack(
             betas,
             dim=1,
         )
-    
-        source_stack = torch.stack(
-            source_images,
-            dim=1,
-        )
 
         B = betas_stack.shape[0]
-        N = betas_stack.shape[1]
     
         query_features_list = []
         positive_features_list = []
         negative_features_list = []
-
+    
+        # =========================================================
+        # Process each subject independently
+        # =========================================================
+    
         for b in range(B):
     
-            # -------------------------------------------------
+            # -----------------------------------------------------
             # Find available contrasts for this subject
-            # -------------------------------------------------
-    
+            # -----------------------------------------------------
+
             if isinstance(available_contrast_id, torch.Tensor):
     
                 avail = available_contrast_id[b]
@@ -545,45 +580,63 @@ class HACA3:
             else:
                 available_ids = available_contrast_id[b]
 
-            if len(available_ids) == 0:
+            # -----------------------------------------------------
+            # Need at least TWO contrasts.
+            #
+            # With only one contrast we cannot construct a
+            # cross-contrast positive pair.
+            # -----------------------------------------------------
+    
+            if len(available_ids) < 2:
                 continue
-
-            # -------------------------------------------------
-            # Pick query contrast
-            # -------------------------------------------------
     
-            query_contrast_id = random.choice(
-                available_ids
+            # -----------------------------------------------------
+            # Pick two DIFFERENT contrasts from the SAME subject
+            # -----------------------------------------------------
+    
+            contrast_a, contrast_b = random.sample(
+                available_ids,
+                2,
             )
+
+            # -----------------------------------------------------
+            # Get beta representations
+            #
+            # Same subject/anatomy, different MRI contrasts.
+            #
+            # [1, 1, D, H, W]
+            # -----------------------------------------------------
     
-            # Original image = query
-            query_img = source_stack[
+            beta_a = betas_stack[
                 b:b+1,
-                query_contrast_id,
+                contrast_a,
             ]
 
-            # Corresponding beta = positive
-            positive_beta = betas_stack[
+            beta_b = betas_stack[
                 b:b+1,
-                query_contrast_id,
+                contrast_b,
             ]
     
-            # -------------------------------------------------
-            # Patchify query and positive
-            # -------------------------------------------------
-
+            # -----------------------------------------------------
+            # Patchify both beta representations
+            # -----------------------------------------------------
+    
             query_feature = self.patchifier(
-                query_img
+                beta_a
             )
     
             positive_feature = self.patchifier(
-                positive_beta
+                beta_b
             )
-    
-            # Depending on your Patchifier3d implementation,
-            # these may already be [B, C, num_patches].
+
+            # -----------------------------------------------------
+            # Convert to:
             #
-            # If patchifier returns [B,C,d,h,w], flatten spatial dims:
+            # [1, C, num_patches]
+            #
+            # if Patchifier returns a spatial feature map.
+            # -----------------------------------------------------
+    
             if query_feature.ndim == 5:
     
                 query_feature = query_feature.flatten(
@@ -594,61 +647,42 @@ class HACA3:
                     start_dim=2
                 )
 
-            # -------------------------------------------------
-            # Collect other contrasts as negatives
-            # -------------------------------------------------
+            # -----------------------------------------------------
+            # Sanity check:
+            #
+            # Spatial correspondence is essential.
+            # Patch i in beta_a must correspond to patch i
+            # in beta_b.
+            # -----------------------------------------------------
     
-            negative_ids = [
-                contrast_id
-                for contrast_id in available_ids
-                if contrast_id != query_contrast_id
-            ]
-    
-            negative_features_this_subject = []
-    
-            for neg_id in negative_ids:
-    
-                negative_beta = betas_stack[
-                    b:b+1,
-                    neg_id,
-                ]
+            assert (
+                query_feature.shape == positive_feature.shape
+            ), (
+                "Query and positive features must have the same "
+                f"shape. Got {query_feature.shape} and "
+                f"{positive_feature.shape}."
+            )
 
-                negative_feature = self.patchifier(
-                    negative_beta
-                )
-    
-                if negative_feature.ndim == 5:
-                    negative_feature = negative_feature.flatten(
-                        start_dim=2
-                    )
+            # -----------------------------------------------------
+            # Construct negatives
+            #
+            # positive_feature:
+            #     [1, C, P]
+            #
+            # For query patch p:
+            #     positive = beta_b patch p
+            #     negatives = beta_b patches q, q != p
+            #
+            # We store beta_b here. PatchNCELoss should perform
+            # the exclusion of the corresponding positive patch.
+            # -----------------------------------------------------
 
-                negative_features_this_subject.append(
-                    negative_feature
-                )
+            negative_feature = positive_feature
     
-            # -------------------------------------------------
-            # Handle subject with only one available contrast
-            # -------------------------------------------------
-
-            if len(negative_features_this_subject) == 0:
+            # -----------------------------------------------------
+            # Save features for this subject
+            # -----------------------------------------------------
     
-                # fallback so PatchNCE still has something valid
-                negative_feature = positive_feature.detach()
-
-            else:
-    
-                # concatenate PATCHES for this subject
-                #
-                # each tensor:
-                # [1, 128, num_patches]
-                #
-                # result:
-                # [1, 128, num_patches * num_negatives]
-                negative_feature = torch.cat(
-                    negative_features_this_subject,
-                    dim=2,
-                )
-
             query_features_list.append(
                 query_feature
             )
@@ -656,146 +690,16 @@ class HACA3:
             positive_features_list.append(
                 positive_feature
             )
-    
+
             negative_features_list.append(
                 negative_feature
             )
-
+    
         return (
             query_features_list,
             positive_features_list,
             negative_features_list,
         )
-
-    # def calculate_features_for_contrastive_loss(
-    #     self,
-    #     betas,
-    #     source_images,
-    #     available_contrast_id,
-    # ):
-    
-    #     # Each list contains N tensors of:
-    #     # [B, 1, D, H, W]
-    #     #
-    #     # Stack modality dimension:
-    #     # [B, N, 1, D, H, W]
-    
-    #     betas_stack = torch.stack(betas, dim=1)
-    #     source_images_stack = torch.stack(source_images, dim=1)
-    
-    #     B, N = available_contrast_id.shape
-    
-    #     query_features = []
-    #     positive_features = []
-    #     negative_features = []
-    
-    #     for subject_id in range(B):
-    
-    #         available_ids = torch.where(
-    #             available_contrast_id[subject_id] > 0
-    #         )[0]
-    
-    #         # Pick one available modality as the query
-    #         query_idx = available_ids[
-    #             torch.randint(
-    #                 len(available_ids),
-    #                 (1,),
-    #                 device=available_ids.device
-    #             )
-    #         ].item()
-    
-    #         # --------------------------------
-    #         # Query
-    #         # --------------------------------
-    
-    #         query_image = source_images_stack[
-    #             subject_id:subject_id + 1,
-    #             query_idx
-    #         ]
-    #         #print("source_images_stack:", source_images_stack.shape)
-    #         #print("betas_stack:", betas_stack.shape)
-    
-    #         query_feature = self.patchifier(
-    #             query_image
-    #         ).flatten(start_dim=2)
-    
-    #         # --------------------------------
-    #         # Positive
-    #         # beta from same modality
-    #         # --------------------------------
-    
-    #         positive_beta = betas_stack[
-    #             subject_id:subject_id + 1,
-    #             query_idx
-    #         ]
-    #         #print("query image:", query_image.shape)
-    #         #print("positive beta:", positive_beta.shape)
-            
-    #         positive_feature = self.patchifier(
-    #             positive_beta
-    #         ).flatten(start_dim=2)
-    
-    #         # --------------------------------
-    #         # Negatives
-    #         # other available modalities
-    #         # --------------------------------
-    
-    #         subject_negative_features = []
-    
-    #         for contrast_idx in available_ids:
-    
-    #             contrast_idx = contrast_idx.item()
-    
-    #             if contrast_idx == query_idx:
-    #                 continue
-    
-    #             negative_beta = betas_stack[
-    #                 subject_id:subject_id + 1,
-    #                 contrast_idx
-    #             ]
-    
-    #             negative_feature = self.patchifier(
-    #                 negative_beta
-    #             ).flatten(start_dim=2)
-    
-    #             subject_negative_features.append(
-    #                 negative_feature
-    #             )
-    
-    #         if len(subject_negative_features) > 0:
-    
-    #             negative_feature = torch.cat(
-    #                 subject_negative_features,
-    #                 dim=2
-    #             )
-    
-    #         else:
-    #             negative_feature = positive_feature
-    
-    #         query_features.append(query_feature)
-    #         positive_features.append(positive_feature)
-    #         negative_features.append(negative_feature)
-    
-    #     query_features = torch.cat(
-    #         query_features,
-    #         dim=0
-    #     )
-    
-    #     positive_features = torch.cat(
-    #         positive_features,
-    #         dim=0
-    #     )
-    
-    #     negative_features = torch.cat(
-    #         negative_features,
-    #         dim=0
-    #     )
-    
-    #     return (
-    #         query_features,
-    #         positive_features,
-    #         negative_features,
-    #     )
 
     def calculate_loss(
         self,
@@ -927,8 +831,8 @@ class HACA3:
         
             loss_b = self.contrastive_loss(
                 query_feature,
-                positive_feature.detach(),
-                negative_feature.detach(),
+                positive_feature,
+                negative_feature,
             )
         
             beta_losses.append(loss_b)
