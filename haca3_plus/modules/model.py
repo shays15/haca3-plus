@@ -105,7 +105,12 @@ class HACA3:
         self.kld_loss = KLDivergenceLoss()
         vgg = models.vgg16(weights=models.VGG16_Weights.IMAGENET1K_V1).features.to(self.device)
         self.perceptual_loss = PerceptualLoss(vgg)
-        self.contrastive_loss = PatchNCELoss()
+        self.contrastive_loss = PatchNCELoss(
+            temperature=0.1,
+            lambda_cross=1.0,
+            lambda_spatial=1.0,
+            lambda_source=1.0,
+        )
 
         # define optimizer and learning rate scheduler
         self.optimizer = Adam(list(self.beta_encoder.parameters()) +
@@ -748,7 +753,7 @@ class HACA3:
         
         for features in feature_sets:
         
-            losses = self.patch_nce_loss(
+            losses = self.contrastive_loss(
                 features["query"],
                 features["positive"],
                 features["source_query"],
