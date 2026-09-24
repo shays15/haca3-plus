@@ -734,46 +734,71 @@ class HACA3:
         # ======================================================
         # 4. BETA PATCHNCE LOSS
         # ======================================================
-    
-        (
-            query_features,
-            positive_features,
-        ) = self.calculate_features_for_contrastive_loss(
+        
+        feature_sets = self.calculate_features_for_contrastive_loss(
             betas,
             source_images,
             available_contrast_id,
         )
         
-        beta_losses = []
+        beta_total_losses = []
+        beta_cross_losses = []
+        beta_spatial_losses = []
+        beta_source_losses = []
         
-        for (
-            query_feature,
-            positive_feature,
-        ) in zip(
-            query_features,
-            positive_features,
-        ):
+        for features in feature_sets:
         
-            loss_b = self.contrastive_loss(
-                query_feature,
-                positive_feature,
+            losses = self.patch_nce_loss(
+                features["query"],
+                features["positive"],
+                features["source_query"],
+                features["source_positive"],
             )
         
-            beta_losses.append(
-                loss_b
-            )
+            beta_total_losses.append(losses["total"])
+            beta_cross_losses.append(losses["cross"])
+            beta_spatial_losses.append(losses["spatial"])
+            beta_source_losses.append(losses["source"])
         
-        if len(beta_losses) > 0:
+        
+        if len(beta_total_losses) > 0:
         
             beta_loss = torch.stack(
-                beta_losses
+                beta_total_losses
+            ).mean()
+        
+            beta_cross_loss = torch.stack(
+                beta_cross_losses
+            ).mean()
+        
+            beta_spatial_loss = torch.stack(
+                beta_spatial_losses
+            ).mean()
+        
+            beta_source_loss = torch.stack(
+                beta_source_losses
             ).mean()
         
         else:
         
             beta_loss = torch.tensor(
                 0.0,
-                device=self.device,
+                device=betas[0].device,
+            )
+        
+            beta_cross_loss = torch.tensor(
+                0.0,
+                device=betas[0].device,
+            )
+        
+            beta_spatial_loss = torch.tensor(
+                0.0,
+                device=betas[0].device,
+            )
+        
+            beta_source_loss = torch.tensor(
+                0.0,
+                device=betas[0].device,
             )
     
     
@@ -785,6 +810,7 @@ class HACA3:
             10.0 * rec_loss
             + 1e-5 * kld_loss
             + 5e-2 * beta_loss
+            + 1 * perceptual_loss
         )
     
     
@@ -821,7 +847,12 @@ class HACA3:
             "rec_loss": rec_loss.item(),
             "per_loss": perceptual_loss.item(),
             "kld_loss": kld_loss.item(),
+        
             "beta_loss": beta_loss.item(),
+            "beta_cross_loss": beta_cross_loss.item(),
+            "beta_spatial_loss": beta_spatial_loss.item(),
+            "beta_source_loss": beta_source_loss.item(),
+        
             "total_loss": total_loss.item(),
         }
     
@@ -851,31 +882,142 @@ class HACA3:
                 'beta_cyc': beta_loss.item()}
         return loss
 
-    def write_tensorboard(self, loss, epoch, batch_id, train_or_valid='train', cycle_loss=None):
+    def write_tensorboard(
+        self,
+        loss,
+        epoch,
+        batch_id,
+        train_or_valid='train',
+        cycle_loss=None
+    ):
         if train_or_valid == 'train':
-            curr_iteration = (epoch - 1) * len(self.train_loader) + batch_id
-        
+    
+            curr_iteration = (
+                (epoch - 1) * len(self.train_loader)
+                + batch_id
+            )
+
             if self.scheduler is not None:
                 lr = self.scheduler.get_last_lr()[0]
             else:
                 lr = self.optimizer.param_groups[0]["lr"]
-        
+    
             self.writer.add_scalar(
                 f'{train_or_valid}/learning rate',
                 lr,
                 curr_iteration
             )
+
         else:
-            curr_iteration = (epoch - 1) * len(self.valid_loader) + batch_id
-        self.writer.add_scalar(f'{train_or_valid}/reconstruction loss', loss['rec_loss'], curr_iteration)
-        self.writer.add_scalar(f'{train_or_valid}/perceptual loss', loss['per_loss'], curr_iteration)
-        self.writer.add_scalar(f'{train_or_valid}/kld loss', loss['kld_loss'], curr_iteration)
-        self.writer.add_scalar(f'{train_or_valid}/beta loss', loss['beta_loss'], curr_iteration)
-        self.writer.add_scalar(f'{train_or_valid}/total loss', loss['total_loss'], curr_iteration)
+    
+            curr_iteration = (
+                (epoch - 1) * len(self.valid_loader)
+                + batch_id
+            )
+    
+        # =====================================================
+        # Main losses
+        # =====================================================
+
+        self.writer.add_scalar(
+            f'{train_or_valid}/reconstruction loss',
+            loss['rec_loss'],
+            curr_iteration
+        )
+    
+        self.writer.add_scalar(
+            f'{train_or_valid}/perceptual loss',
+            loss['per_loss'],
+            curr_iteration
+        )
+    
+        self.writer.add_scalar(
+            f'{train_or_valid}/kld loss',
+            loss['kld_loss'],
+            curr_iteration
+        )
+
+        self.writer.add_scalar(
+            f'{train_or_valid}/total loss',
+            loss['total_loss'],
+            curr_iteration
+        )
+    
+        # =====================================================
+        # Beta contrastive losses
+        # =====================================================
+    
+        self.writer.add_scalar(
+            f'{train_or_valid}/beta/total',
+            loss['beta_loss'],
+            curr_iteration
+        )
+
+        self.writer.add_scalar(
+            f'{train_or_valid}/beta/cross contrast',
+            loss['beta_cross_loss'],
+            curr_iteration
+        )
+    
+        self.writer.add_scalar(
+            f'{train_or_valid}/beta/spatial',
+            loss['beta_spatial_loss'],
+            curr_iteration
+        )
+    
+        self.writer.add_scalar(
+            f'{train_or_valid}/beta/source',
+            loss['beta_source_loss'],
+            curr_iteration
+        )
+
+        # =====================================================
+        # Weighted loss contributions
+        # =====================================================
+    
+        if 'weighted_rec' in loss:
+    
+            self.writer.add_scalar(
+                f'{train_or_valid}/weighted/reconstruction',
+                loss['weighted_rec'],
+                curr_iteration
+            )
+    
+            self.writer.add_scalar(
+                f'{train_or_valid}/weighted/perceptual',
+                loss['weighted_per'],
+                curr_iteration
+            )
+
+            self.writer.add_scalar(
+                f'{train_or_valid}/weighted/kld',
+                loss['weighted_kld'],
+                curr_iteration
+            )
+    
+            self.writer.add_scalar(
+                f'{train_or_valid}/weighted/beta',
+                loss['weighted_beta'],
+                curr_iteration
+            )
+
+        # =====================================================
+        # Cycle losses
+        # =====================================================
+    
         if cycle_loss is not None:
-            self.writer.add_scalar(f'{train_or_valid}/theta cycle loss', cycle_loss['theta_cyc'], curr_iteration)
-            # self.writer.add_scalar(f'{train_or_valid}/eta cycle loss', cycle_loss['eta_cyc'], curr_iteration)
-            self.writer.add_scalar(f'{train_or_valid}/beta cycle loss', cycle_loss['beta_cyc'], curr_iteration)
+    
+            self.writer.add_scalar(
+                f'{train_or_valid}/cycle/theta',
+                cycle_loss['theta_cyc'],
+                curr_iteration
+            )
+    
+            self.writer.add_scalar(
+                f'{train_or_valid}/cycle/beta',
+                cycle_loss['beta_cyc'],
+                curr_iteration
+            )
 
     def save_model(self, epoch, file_name):
         # state = {'epoch': epoch,
