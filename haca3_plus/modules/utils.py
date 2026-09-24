@@ -159,75 +159,117 @@ class PerceptualLoss(nn.Module):
 
 class PatchNCELoss(nn.Module):
 
-    def __init__(self, temperature=0.1):
+    def __init__(
+        self,
+        temperature=0.1,
+        lambda_cross=1.0,
+        lambda_spatial=1.0,
+        lambda_source=1.0,
+    ):
         super().__init__()
+
         self.temperature = temperature
+
+        self.lambda_cross = lambda_cross
+        self.lambda_spatial = lambda_spatial
+        self.lambda_source = lambda_source
 
     def forward(
         self,
         query_feature,
         positive_feature,
+        source_query_feature,
+        source_positive_feature,
     ):
         """
-        Cross-contrast PatchNCE.
+        Contrastive regularization for beta.
 
-        query_feature:
+        All inputs:
             [B, C, N]
 
-        positive_feature:
-            [B, C, N]
+        Components
+        ----------
+        1. Cross-contrast PatchNCE
 
-        Patch i in query_feature should match patch i
-        in positive_feature.
+           beta_A(i) should match beta_B(i)
 
-        All other spatial patches j != i are negatives.
+           beta_A(i) vs beta_B(j), j != i
+           are negatives.
+
+        2. Within-beta spatial discrimination
+
+           beta_A(i) should be distinguishable from
+           beta_A(j), j != i.
+
+        3. Source-image separation
+
+           beta_A should be distinguishable from features
+           extracted directly from source images A and B.
         """
 
         B, C, N = query_feature.shape
 
-        # -------------------------------------------------
-        # Normalize features so similarity = cosine similarity
-        # -------------------------------------------------
+        # =================================================
+        # Normalize
+        # =================================================
 
-        query_feature = F.normalize(
+        q = F.normalize(
             query_feature,
             dim=1,
         )
 
-        positive_feature = F.normalize(
+        p = F.normalize(
             positive_feature,
             dim=1,
         )
 
-        # -------------------------------------------------
-        # Pairwise similarities
-        #
-        # [B, N, C] @ [B, C, N]
-        #       ->
-        # [B, N, N]
-        #
-        # similarity[b, i, j]:
-        #     similarity between query patch i
-        #     and positive patch j
-        #
-        # diagonal i == j = true positive
-        # off-diagonal     = negatives
-        # -------------------------------------------------
-
-        logits = torch.bmm(
-            query_feature.permute(0, 2, 1),
-            positive_feature,
+        source_q = F.normalize(
+            source_query_feature,
+            dim=1,
         )
 
-        logits = logits / self.temperature
+        source_p = F.normalize(
+            source_positive_feature,
+            dim=1,
+        )
 
-        # -------------------------------------------------
-        # Correct target for query patch i is positive patch i
-        # -------------------------------------------------
+        # =================================================
+        # Positive similarity
+        #
+        # q_i <-> p_i
+        #
+        # [B, N]
+        # =================================================
+
+        positive_logits = (
+            q * p
+        ).sum(dim=1)
+
+        # =================================================
+        # 1. CROSS-CONTRAST SPATIAL LOSS
+        #
+        # Compare every q_i against every p_j.
+        #
+        # Diagonal:
+        #     q_i vs p_i = positive
+        #
+        # Off diagonal:
+        #     q_i vs p_j = negative
+        # =================================================
+
+        cross_logits = torch.bmm(
+            q.permute(0, 2, 1),
+            p,
+        )
+
+        cross_logits = (
+            cross_logits
+            / self.temperature
+        )
 
         targets = torch.arange(
             N,
-            device=query_feature.device,
+            device=q.device,
         )
 
         targets = targets.unsqueeze(0).expand(
@@ -235,23 +277,143 @@ class PatchNCELoss(nn.Module):
             -1,
         )
 
-        # -------------------------------------------------
-        # Flatten batch and patch dimensions
-        # -------------------------------------------------
+        loss_cross = F.cross_entropy(
+            cross_logits.reshape(B * N, N),
+            targets.reshape(B * N),
+        )
 
-        logits = logits.reshape(
-            B * N,
+        # =================================================
+        # 2. WITHIN-BETA SPATIAL LOSS
+        #
+        # Positive:
+        #     q_i <-> p_i
+        #
+        # Negatives:
+        #     q_i <-> q_j
+        #     where j != i
+        #
+        # We explicitly remove the diagonal so q_i is never
+        # accidentally used as its own negative.
+        # =================================================
+
+        spatial_similarity = torch.bmm(
+            q.permute(0, 2, 1),
+            q,
+        )
+
+        # [N, N]
+        off_diagonal_mask = ~torch.eye(
             N,
+            dtype=torch.bool,
+            device=q.device,
         )
 
-        targets = targets.reshape(
+        # [B, N, N - 1]
+        spatial_negatives = spatial_similarity[
+            :,
+            off_diagonal_mask,
+        ].reshape(
+            B,
+            N,
+            N - 1,
+        )
+
+        # First logit is always the true positive.
+        #
+        # [B, N, 1 + (N-1)]
+        spatial_logits = torch.cat(
+            [
+                positive_logits.unsqueeze(-1),
+                spatial_negatives,
+            ],
+            dim=-1,
+        )
+
+        spatial_logits = (
+            spatial_logits
+            / self.temperature
+        )
+
+        # Correct answer is column 0.
+        spatial_targets = torch.zeros(
             B * N,
+            dtype=torch.long,
+            device=q.device,
         )
 
-        return F.cross_entropy(
-            logits,
-            targets,
+        loss_spatial = F.cross_entropy(
+            spatial_logits.reshape(B * N, N),
+            spatial_targets,
         )
+
+        # =================================================
+        # 3. SOURCE-SEPARATION LOSS
+        #
+        # Positive:
+        #     q_i <-> p_i
+        #
+        # Negatives:
+        #     q_i <-> source_A(j)
+        #     q_i <-> source_B(j)
+        #
+        # All source-image patches are treated as negatives.
+        # =================================================
+
+        source_q_similarity = torch.bmm(
+            q.permute(0, 2, 1),
+            source_q,
+        )
+
+        source_p_similarity = torch.bmm(
+            q.permute(0, 2, 1),
+            source_p,
+        )
+
+        # [B, N, 1 + N + N]
+        source_logits = torch.cat(
+            [
+                positive_logits.unsqueeze(-1),
+                source_q_similarity,
+                source_p_similarity,
+            ],
+            dim=-1,
+        )
+
+        source_logits = (
+            source_logits
+            / self.temperature
+        )
+
+        source_targets = torch.zeros(
+            B * N,
+            dtype=torch.long,
+            device=q.device,
+        )
+
+        loss_source = F.cross_entropy(
+            source_logits.reshape(
+                B * N,
+                1 + 2 * N,
+            ),
+            source_targets,
+        )
+
+        # =================================================
+        # Total
+        # =================================================
+
+        loss = (
+            self.lambda_cross * loss_cross
+            + self.lambda_spatial * loss_spatial
+            + self.lambda_source * loss_source
+        )
+
+        return {
+            "total": loss,
+            "cross": loss_cross,
+            "spatial": loss_spatial,
+            "source": loss_source,
+        }
 
 
 class KLDivergenceLoss(nn.Module):
