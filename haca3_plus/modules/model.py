@@ -487,56 +487,92 @@ class HACA3:
         available_contrast_id,
     ):
         """
-        Construct cross-contrast beta pairs for PatchNCE.
+        Construct features for contrastive regularization of beta.
     
-        For each subject:
-            query    = beta from contrast A
-            positive = beta from contrast B
+        For each subject, randomly select two available contrasts A and B.
     
-        where A != B.
+        We want beta to satisfy:
+
+        1. Cross-contrast consistency:
+           beta_A(i) ~ beta_B(i)
+
+        2. Spatial discriminability:
+           beta_A(i) != beta_A(j), i != j
+           beta_A(i) != beta_B(j), i != j
+
+        3. Source-image separation:
+           beta_A(i) should be distinguishable from features
+           extracted directly from source images A and B.
+
+        Returns
+        -------
+        feature_sets : list of dict
+            One dictionary per usable subject containing:
     
-        Corresponding spatial patches are positives.
-        Different spatial patches are negatives.
+                query:
+                    beta_A features [1, C, N]
+    
+                positive:
+                    beta_B features [1, C, N]
+    
+                source_query:
+                    source image A features [1, C, N]
+    
+                source_positive:
+                    source image B features [1, C, N]
         """
 
-        # [B, N_contrasts, 1, D, H, W]
+        # betas/source_images are lists over contrasts.
+        #
+        # Each beta:
+        #   [B, 1, D, H, W]
+        #
+        # After stacking:
+        #   [B, N_contrasts, 1, D, H, W]
+    
         betas_stack = torch.stack(
             betas,
             dim=1,
         )
     
+        source_images_stack = torch.stack(
+            source_images,
+            dim=1,
+        )
+
         B = betas_stack.shape[0]
     
-        query_features_list = []
-        positive_features_list = []
-
+        feature_sets = []
+    
         for b in range(B):
     
-            # ---------------------------------------------
-            # Available contrasts for this subject
-            # ---------------------------------------------
+            # -------------------------------------------------
+            # Find available contrasts for this subject
+            # -------------------------------------------------
     
             avail = available_contrast_id[b]
     
             available_ids = torch.where(
                 avail > 0
             )[0].tolist()
-    
-            # Need at least two contrasts for
-            # cross-contrast beta consistency
+
+            # Need at least two contrasts
             if len(available_ids) < 2:
                 continue
     
-            # ---------------------------------------------
-            # Pick TWO DIFFERENT contrasts
-            # ---------------------------------------------
-
+            # -------------------------------------------------
+            # Randomly select two DIFFERENT contrasts
+            # -------------------------------------------------
+    
             contrast_a, contrast_b = random.sample(
                 available_ids,
                 2,
             )
+
+            # -------------------------------------------------
+            # Get beta representations
+            # -------------------------------------------------
     
-            # Same anatomy, different MRI contrast
             beta_a = betas_stack[
                 b:b+1,
                 contrast_a,
@@ -547,47 +583,68 @@ class HACA3:
                 contrast_b,
             ]
 
-            # ---------------------------------------------
-            # Patchify
-            # ---------------------------------------------
+            # -------------------------------------------------
+            # Get corresponding source images
+            # -------------------------------------------------
+    
+            source_a = source_images_stack[
+                b:b+1,
+                contrast_a,
+            ]
+    
+            source_b = source_images_stack[
+                b:b+1,
+                contrast_b,
+            ]
+
+            # -------------------------------------------------
+            # Patchify everything
+            #
+            # Input:
+            #   [1, 1, 192, 224, 192]
+            #
+            # Patchifier output:
+            #   [1, 128, 6, 7, 6]
+            #
+            # Flatten:
+            #   [1, 128, 252]
+            # -------------------------------------------------
     
             query_feature = self.patchifier(
                 beta_a
-            )
+            ).flatten(start_dim=2)
     
             positive_feature = self.patchifier(
                 beta_b
-            )
-    
-            # Convert spatial feature maps to patches
-            # [1, C, d, h, w] -> [1, C, N]
-            if query_feature.ndim == 5:
-    
-                query_feature = query_feature.flatten(
-                    start_dim=2
-                )
-    
-                positive_feature = positive_feature.flatten(
-                    start_dim=2
-                )
+            ).flatten(start_dim=2)
 
+            source_query_feature = self.patchifier(
+                source_a
+            ).flatten(start_dim=2)
+    
+            source_positive_feature = self.patchifier(
+                source_b
+            ).flatten(start_dim=2)
+    
+            # All should describe the same spatial patch grid
             assert (
                 query_feature.shape
                 == positive_feature.shape
+                == source_query_feature.shape
+                == source_positive_feature.shape
             )
+
+            feature_sets.append({
+                "query": query_feature,
+                "positive": positive_feature,
+                "source_query": source_query_feature,
+                "source_positive": source_positive_feature,
+                "contrast_a": contrast_a,
+                "contrast_b": contrast_b,
+            })
     
-            query_features_list.append(
-                query_feature
-            )
-    
-            positive_features_list.append(
-                positive_feature
-            )
-    
-        return (
-            query_features_list,
-            positive_features_list,
-        )
+        return feature_sets
+     
 
     def calculate_loss(
         self,
