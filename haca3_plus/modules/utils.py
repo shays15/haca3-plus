@@ -180,8 +180,6 @@ class PatchNCELoss(nn.Module):
         positive_feature,
         source_query_feature,
         source_positive_feature,
-        beta_query,
-        beta_positive,
     ):
         """
         Beta regularization.
