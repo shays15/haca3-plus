@@ -107,9 +107,9 @@ class HACA3:
         self.perceptual_loss = PerceptualLoss(vgg)
         self.contrastive_loss = PatchNCELoss(
             temperature=0.1,
-            lambda_cross=1.0,
-            lambda_spatial=1.0,
-            lambda_source=1.0,
+            lambda_consistency=1.0,
+            lambda_spatial=0.25,
+            lambda_source=0.1,
         )
 
         # define optimizer and learning rate scheduler
@@ -642,8 +642,14 @@ class HACA3:
             feature_sets.append({
                 "query": query_feature,
                 "positive": positive_feature,
+            
                 "source_query": source_query_feature,
                 "source_positive": source_positive_feature,
+            
+                # Actual beta volumes for direct consistency
+                "beta_query": beta_a,
+                "beta_positive": beta_b,
+            
                 "contrast_a": contrast_a,
                 "contrast_b": contrast_b,
             })
@@ -734,20 +740,89 @@ class HACA3:
             mu,
             logvar,
         ).mean()
-    
-    
+
         # ======================================================
-        # 4. BETA PATCHNCE LOSS
+        # 4. BETA REGULARIZATION
         # ======================================================
+
+        # ------------------------------------------------------
+        # 4A. DIRECT CROSS-CONTRAST BETA CONSISTENCY
+        #
+        # Use ALL available contrast pairs.
+        # ------------------------------------------------------
         
-        feature_sets = self.calculate_features_for_contrastive_loss(
+        betas_stack = torch.stack(
             betas,
-            source_images,
-            available_contrast_id,
+            dim=1,
         )
         
-        beta_total_losses = []
-        beta_cross_losses = []
+        B = betas_stack.shape[0]
+        
+        beta_consistency_losses = []
+        
+        for b in range(B):
+        
+            available_ids = torch.where(
+                available_contrast_id[b] > 0
+            )[0].tolist()
+        
+            if len(available_ids) < 2:
+                continue
+        
+            for i in range(len(available_ids)):
+        
+                for j in range(i + 1, len(available_ids)):
+        
+                    contrast_a = available_ids[i]
+                    contrast_b = available_ids[j]
+        
+                    beta_a = betas_stack[
+                        b:b+1,
+                        contrast_a,
+                    ]
+        
+                    beta_b = betas_stack[
+                        b:b+1,
+                        contrast_b,
+                    ]
+        
+                    beta_consistency_losses.append(
+                        F.l1_loss(
+                            beta_a,
+                            beta_b,
+                        )
+                    )
+        
+        
+        if len(beta_consistency_losses) > 0:
+        
+            beta_consistency_loss = torch.stack(
+                beta_consistency_losses
+            ).mean()
+        
+        else:
+        
+            beta_consistency_loss = torch.tensor(
+                0.0,
+                device=betas[0].device,
+            )
+        
+        
+        # ------------------------------------------------------
+        # 4B. PATCH-LEVEL REGULARIZATION
+        #
+        # Sample one pair per subject because this is much more
+        # computationally expensive than direct L1 consistency.
+        # ------------------------------------------------------
+        
+        feature_sets = (
+            self.calculate_features_for_contrastive_loss(
+                betas,
+                source_images,
+                available_contrast_id,
+            )
+        )
+        
         beta_spatial_losses = []
         beta_source_losses = []
         
@@ -760,21 +835,16 @@ class HACA3:
                 features["source_positive"],
             )
         
-            beta_total_losses.append(losses["total"])
-            beta_cross_losses.append(losses["cross"])
-            beta_spatial_losses.append(losses["spatial"])
-            beta_source_losses.append(losses["source"])
+            beta_spatial_losses.append(
+                losses["spatial"]
+            )
+        
+            beta_source_losses.append(
+                losses["source"]
+            )
         
         
-        if len(beta_total_losses) > 0:
-        
-            beta_loss = torch.stack(
-                beta_total_losses
-            ).mean()
-        
-            beta_cross_loss = torch.stack(
-                beta_cross_losses
-            ).mean()
+        if len(beta_spatial_losses) > 0:
         
             beta_spatial_loss = torch.stack(
                 beta_spatial_losses
@@ -786,16 +856,6 @@ class HACA3:
         
         else:
         
-            beta_loss = torch.tensor(
-                0.0,
-                device=betas[0].device,
-            )
-        
-            beta_cross_loss = torch.tensor(
-                0.0,
-                device=betas[0].device,
-            )
-        
             beta_spatial_loss = torch.tensor(
                 0.0,
                 device=betas[0].device,
@@ -805,17 +865,49 @@ class HACA3:
                 0.0,
                 device=betas[0].device,
             )
+        
+        
+        # ------------------------------------------------------
+        # 4C. COMBINE BETA OBJECTIVES
+        # ------------------------------------------------------
+        
+        beta_loss = (
+            1.0 * beta_consistency_loss
+            + 0.25 * beta_spatial_loss
+            + 0.10 * beta_source_loss
+        )
     
     
         # ======================================================
         # 5. TOTAL LOSS
         # ======================================================
     
+        lambda_rec = 10.0
+        lambda_per = 0.1
+        lambda_kld = 1e-4
+        lambda_beta = 0.05
+
+        weighted_rec = (
+            lambda_rec * rec_loss
+        )
+        
+        weighted_per = (
+            lambda_per * perceptual_loss
+        )
+        
+        weighted_kld = (
+            lambda_kld * kld_loss
+        )
+        
+        weighted_beta = (
+            lambda_beta * beta_loss
+        )
+        
         total_loss = (
-            10.0 * rec_loss
-            + 1e-5 * kld_loss
-            + 5e-2 * beta_loss
-            + 1 * perceptual_loss
+            weighted_rec
+            + weighted_per
+            + weighted_kld
+            + weighted_beta
         )
     
     
@@ -854,9 +946,23 @@ class HACA3:
             "kld_loss": kld_loss.item(),
         
             "beta_loss": beta_loss.item(),
-            "beta_cross_loss": beta_cross_loss.item(),
-            "beta_spatial_loss": beta_spatial_loss.item(),
-            "beta_source_loss": beta_source_loss.item(),
+        
+            "beta_consistency_loss": (
+                beta_consistency_loss.item()
+            ),
+        
+            "beta_spatial_loss": (
+                beta_spatial_loss.item()
+            ),
+        
+            "beta_source_loss": (
+                beta_source_loss.item()
+            ),
+        
+            "weighted_rec": weighted_rec.item(),
+            "weighted_per": weighted_per.item(),
+            "weighted_kld": weighted_kld.item(),
+            "weighted_beta": weighted_beta.item(),
         
             "total_loss": total_loss.item(),
         }
@@ -959,8 +1065,8 @@ class HACA3:
         )
 
         self.writer.add_scalar(
-            f'{train_or_valid}/beta/cross contrast',
-            loss['beta_cross_loss'],
+            f'{train_or_valid}/beta/direct consistency',
+            loss['beta_consistency_loss'],
             curr_iteration
         )
     
