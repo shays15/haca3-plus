@@ -218,21 +218,21 @@ class PatchNCELoss(nn.Module):
 
         B, C, N = query_feature.shape
 
-        # ==========================================================
-        # 1. DIRECT CROSS-CONTRAST BETA CONSISTENCY
-        # ==========================================================
+        # # ==========================================================
+        # # 1. DIRECT CROSS-CONTRAST BETA CONSISTENCY
+        # # ==========================================================
 
-        # This is the property we actually care about:
-        #
-        # beta_A ~= beta_B
-        #
-        # No patchifier is involved, so the patchifier cannot learn
-        # a shortcut that hides differences between the beta maps.
+        # # This is the property we actually care about:
+        # #
+        # # beta_A ~= beta_B
+        # #
+        # # No patchifier is involved, so the patchifier cannot learn
+        # # a shortcut that hides differences between the beta maps.
 
-        loss_consistency = F.l1_loss(
-            beta_query,
-            beta_positive,
-        )
+        # loss_consistency = F.l1_loss(
+        #     beta_query,
+        #     beta_positive,
+        # )
 
 
         # ==========================================================
@@ -357,15 +357,12 @@ class PatchNCELoss(nn.Module):
         # TOTAL BETA LOSS
         # ==========================================================
 
-        total = (
-            self.lambda_consistency * loss_consistency
-            + self.lambda_spatial * loss_spatial
-            + self.lambda_source * loss_source
-        )
+        # total = (
+        #     self.lambda_spatial * loss_spatial
+        #     + self.lambda_source * loss_source
+        # )
 
         return {
-            "total": total,
-            "consistency": loss_consistency,
             "spatial": loss_spatial,
             "source": loss_source,
         }
