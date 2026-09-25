@@ -880,9 +880,9 @@ class HACA3:
         # ======================================================
     
         lambda_rec = 10.0
-        lambda_per = 0.1
+        lambda_per = 1
         lambda_kld = 1e-4
-        lambda_beta = 0.05
+        lambda_beta = 0.5
 
         weighted_rec = (
             lambda_rec * rec_loss
