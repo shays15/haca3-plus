@@ -39,7 +39,7 @@ class HACA3:
         self.writer, self.writer_path = None, None
         self.checkpoint = None
 
-        self.l1_loss, self.kld_loss, self.contrastive_loss, self.perceptual_loss = None, None, None, None
+        self.l1_loss, self.kld_loss, ive_loss, self.perceptual_loss = None, None, None, None
 
         # define networks
         self.beta_encoder = UNet3d(
@@ -106,10 +106,7 @@ class HACA3:
         vgg = models.vgg16(weights=models.VGG16_Weights.IMAGENET1K_V1).features.to(self.device)
         self.perceptual_loss = PerceptualLoss(vgg)
         self.contrastive_loss = PatchNCELoss(
-            temperature=0.1,
-            lambda_consistency=1.0,
-            lambda_spatial=0.25,
-            lambda_source=0.1,
+            temperature=0.1
         )
 
         # define optimizer and learning rate scheduler
