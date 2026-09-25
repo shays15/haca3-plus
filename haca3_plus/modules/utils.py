@@ -158,21 +158,21 @@ class PerceptualLoss(nn.Module):
 #         return self.ce_loss(predictions, targets).mean()
 
 class PatchNCELoss(nn.Module):
-
     def __init__(
         self,
         temperature=0.1,
-        lambda_cross=1.0,
-        lambda_spatial=1.0,
-        lambda_source=1.0,
+        lambda_consistency=1.0,
+        lambda_spatial=0.25,
+        lambda_source=0.1,
     ):
         super().__init__()
 
         self.temperature = temperature
 
-        self.lambda_cross = lambda_cross
+        self.lambda_consistency = lambda_consistency
         self.lambda_spatial = lambda_spatial
         self.lambda_source = lambda_source
+
 
     def forward(
         self,
@@ -180,96 +180,111 @@ class PatchNCELoss(nn.Module):
         positive_feature,
         source_query_feature,
         source_positive_feature,
+        beta_query,
+        beta_positive,
     ):
         """
-        Contrastive regularization for beta.
+        Beta regularization.
 
-        All inputs:
+        Main objective:
+            Directly force beta maps from the same subject but
+            different MRI contrasts to be similar.
+
+        Additional PatchNCE constraints:
+            1. Spatial discrimination prevents beta collapse.
+            2. Source separation discourages beta from simply
+               reproducing source-image appearance.
+
+        Shapes
+        ------
+        query_feature:
             [B, C, N]
 
-        Components
-        ----------
-        1. Cross-contrast PatchNCE
+        positive_feature:
+            [B, C, N]
 
-           beta_A(i) should match beta_B(i)
+        source_query_feature:
+            [B, C, N]
 
-           beta_A(i) vs beta_B(j), j != i
-           are negatives.
+        source_positive_feature:
+            [B, C, N]
 
-        2. Within-beta spatial discrimination
+        beta_query:
+            [B, 1, D, H, W]
 
-           beta_A(i) should be distinguishable from
-           beta_A(j), j != i.
-
-        3. Source-image separation
-
-           beta_A should be distinguishable from features
-           extracted directly from source images A and B.
+        beta_positive:
+            [B, 1, D, H, W]
         """
 
         B, C, N = query_feature.shape
 
-        # =================================================
-        # Normalize
-        # =================================================
+        # ==========================================================
+        # 1. DIRECT CROSS-CONTRAST BETA CONSISTENCY
+        # ==========================================================
 
-        q = F.normalize(
+        # This is the property we actually care about:
+        #
+        # beta_A ~= beta_B
+        #
+        # No patchifier is involved, so the patchifier cannot learn
+        # a shortcut that hides differences between the beta maps.
+
+        loss_consistency = F.l1_loss(
+            beta_query,
+            beta_positive,
+        )
+
+
+        # ==========================================================
+        # Normalize patch features
+        # ==========================================================
+
+        query_feature = F.normalize(
             query_feature,
             dim=1,
         )
 
-        p = F.normalize(
+        positive_feature = F.normalize(
             positive_feature,
             dim=1,
         )
 
-        source_q = F.normalize(
+        source_query_feature = F.normalize(
             source_query_feature,
             dim=1,
         )
 
-        source_p = F.normalize(
+        source_positive_feature = F.normalize(
             source_positive_feature,
             dim=1,
         )
 
-        # =================================================
-        # Positive similarity
-        #
-        # q_i <-> p_i
-        #
-        # [B, N]
-        # =================================================
 
-        positive_logits = (
-            q * p
-        ).sum(dim=1)
+        # ==========================================================
+        # 2. SPATIAL DISCRIMINATION
+        # ==========================================================
+        #
+        # Patch i in beta_A should correspond to patch i in beta_B.
+        #
+        # Other spatial locations are negatives.
+        #
+        # This prevents the trivial solution:
+        #
+        # beta_A = beta_B = constant everywhere.
+        # ==========================================================
 
-        # =================================================
-        # 1. CROSS-CONTRAST SPATIAL LOSS
-        #
-        # Compare every q_i against every p_j.
-        #
-        # Diagonal:
-        #     q_i vs p_i = positive
-        #
-        # Off diagonal:
-        #     q_i vs p_j = negative
-        # =================================================
-
-        cross_logits = torch.bmm(
-            q.permute(0, 2, 1),
-            p,
+        spatial_logits = torch.bmm(
+            query_feature.permute(0, 2, 1),
+            positive_feature,
         )
 
-        cross_logits = (
-            cross_logits
-            / self.temperature
+        spatial_logits = (
+            spatial_logits / self.temperature
         )
 
         targets = torch.arange(
             N,
-            device=q.device,
+            device=query_feature.device,
         )
 
         targets = targets.unsqueeze(0).expand(
@@ -277,117 +292,56 @@ class PatchNCELoss(nn.Module):
             -1,
         )
 
-        loss_cross = F.cross_entropy(
-            cross_logits.reshape(B * N, N),
+        loss_spatial = F.cross_entropy(
+            spatial_logits.reshape(B * N, N),
             targets.reshape(B * N),
         )
 
-        # =================================================
-        # 2. WITHIN-BETA SPATIAL LOSS
+
+        # ==========================================================
+        # 3. SOURCE-IMAGE SEPARATION
+        # ==========================================================
         #
-        # Positive:
-        #     q_i <-> p_i
-        #
-        # Negatives:
-        #     q_i <-> q_j
-        #     where j != i
-        #
-        # We explicitly remove the diagonal so q_i is never
-        # accidentally used as its own negative.
-        # =================================================
+        # Beta features should be more similar to corresponding beta
+        # features than to features directly extracted from the
+        # source MRI intensities.
+        # ==========================================================
 
-        spatial_similarity = torch.bmm(
-            q.permute(0, 2, 1),
-            q,
+        positive_similarity = (
+            query_feature * positive_feature
+        ).sum(
+            dim=1,
+            keepdim=False,
+        ).unsqueeze(-1)
+
+        source_a_similarity = torch.bmm(
+            query_feature.permute(0, 2, 1),
+            source_query_feature,
         )
 
-        # [N, N]
-        off_diagonal_mask = ~torch.eye(
-            N,
-            dtype=torch.bool,
-            device=q.device,
+        source_b_similarity = torch.bmm(
+            query_feature.permute(0, 2, 1),
+            source_positive_feature,
         )
 
-        # [B, N, N - 1]
-        spatial_negatives = spatial_similarity[
-            :,
-            off_diagonal_mask,
-        ].reshape(
-            B,
-            N,
-            N - 1,
-        )
-
-        # First logit is always the true positive.
-        #
-        # [B, N, 1 + (N-1)]
-        spatial_logits = torch.cat(
-            [
-                positive_logits.unsqueeze(-1),
-                spatial_negatives,
-            ],
-            dim=-1,
-        )
-
-        spatial_logits = (
-            spatial_logits
-            / self.temperature
-        )
-
-        # Correct answer is column 0.
-        spatial_targets = torch.zeros(
-            B * N,
-            dtype=torch.long,
-            device=q.device,
-        )
-
-        loss_spatial = F.cross_entropy(
-            spatial_logits.reshape(B * N, N),
-            spatial_targets,
-        )
-
-        # =================================================
-        # 3. SOURCE-SEPARATION LOSS
-        #
-        # Positive:
-        #     q_i <-> p_i
-        #
-        # Negatives:
-        #     q_i <-> source_A(j)
-        #     q_i <-> source_B(j)
-        #
-        # All source-image patches are treated as negatives.
-        # =================================================
-
-        source_q_similarity = torch.bmm(
-            q.permute(0, 2, 1),
-            source_q,
-        )
-
-        source_p_similarity = torch.bmm(
-            q.permute(0, 2, 1),
-            source_p,
-        )
-
-        # [B, N, 1 + N + N]
         source_logits = torch.cat(
             [
-                positive_logits.unsqueeze(-1),
-                source_q_similarity,
-                source_p_similarity,
+                positive_similarity,
+                source_a_similarity,
+                source_b_similarity,
             ],
             dim=-1,
         )
 
         source_logits = (
-            source_logits
-            / self.temperature
+            source_logits / self.temperature
         )
 
+        # Positive is always column 0
         source_targets = torch.zeros(
             B * N,
             dtype=torch.long,
-            device=q.device,
+            device=query_feature.device,
         )
 
         loss_source = F.cross_entropy(
@@ -398,23 +352,23 @@ class PatchNCELoss(nn.Module):
             source_targets,
         )
 
-        # =================================================
-        # Total
-        # =================================================
 
-        loss = (
-            self.lambda_cross * loss_cross
+        # ==========================================================
+        # TOTAL BETA LOSS
+        # ==========================================================
+
+        total = (
+            self.lambda_consistency * loss_consistency
             + self.lambda_spatial * loss_spatial
             + self.lambda_source * loss_source
         )
 
         return {
-            "total": loss,
-            "cross": loss_cross,
+            "total": total,
+            "consistency": loss_consistency,
             "spatial": loss_spatial,
             "source": loss_source,
         }
-
 
 class KLDivergenceLoss(nn.Module):
     def __init__(self):
