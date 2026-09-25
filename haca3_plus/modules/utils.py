@@ -166,11 +166,6 @@ class PatchNCELoss(nn.Module):
 
         self.temperature = temperature
 
-        self.lambda_consistency = lambda_consistency
-        self.lambda_spatial = lambda_spatial
-        self.lambda_source = lambda_source
-
-
     def forward(
         self,
         query_feature,
