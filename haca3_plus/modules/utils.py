@@ -160,10 +160,7 @@ class PerceptualLoss(nn.Module):
 class PatchNCELoss(nn.Module):
     def __init__(
         self,
-        temperature=0.1,
-        lambda_consistency=1.0,
-        lambda_spatial=0.25,
-        lambda_source=0.1,
+        temperature=0.1
     ):
         super().__init__()
 
