@@ -1197,6 +1197,7 @@ class HACA3:
             and batch_size > 1
             and torch.unique(site_ids).numel() > 1
         )
+        do_inter_site = False
     
         # ======================================================
         # PREPARE SOURCE IMAGES
