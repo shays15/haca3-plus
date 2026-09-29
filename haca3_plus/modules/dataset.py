@@ -176,9 +176,9 @@ def get_tensor_from_fpath(
     # ]
     
     image = image[
-        60:crop_shape[0]+60,
-        60:crop_shape[1]+60,
-        60:crop_shape[2]+60,
+        40:crop_shape[0]+40,
+        40:crop_shape[1]+40,
+        40:crop_shape[2]+40,
     ]
 
 
