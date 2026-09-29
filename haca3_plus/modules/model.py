@@ -952,6 +952,7 @@ class HACA3:
         total_loss = (
             weighted_rec
             + weighted_per
+            + weighted_kld
         )
     
     
