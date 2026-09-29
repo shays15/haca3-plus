@@ -302,33 +302,76 @@ class HACA3:
             / self.beta_dim
         )
 
+    # def select_available_contrasts(self, image_dicts):
+    #     """
+    #     Select available contrasts as target.
+
+    #     ===INPUTS===
+    #     * image_dicts: list (num_contrasts, )
+    #         List of dictionaries. Each element is a dictionary received from dataloader. See dataset.py for details.
+
+    #     ===OUTPUTS===
+    #     * target_image: torch.Tensor (batch_size, 1, image_dim=224, image_dim=224)
+    #         Images as target for I2I.
+    #     *  selected_contrast_id: torch.Tensor (batch_size, num_contrasts)
+    #         Indicates which contrast has been selected as target image.
+    #     """
+    #     target_image_combined = torch.cat([d['image'] for d in image_dicts], dim=1)
+    #     # (batch_size, num_contrasts)
+    #     available_contrasts = torch.stack([d['exists'] for d in image_dicts], dim=-1)
+    #     subject_ids = available_contrasts.nonzero(as_tuple=True)[0]
+    #     contrast_ids = available_contrasts.nonzero(as_tuple=True)[1]
+    #     unique_subject_ids = list(torch.unique(subject_ids))
+    #     selected_contrast_ids = []
+    #     for i in unique_subject_ids:
+    #         selected_contrast_ids.append(random.choice(contrast_ids[subject_ids == i]))
+    #     target_image = target_image_combined[unique_subject_ids, selected_contrast_ids, ...].unsqueeze(1).to(
+    #         self.device)
+    #     selected_contrast_id = torch.zeros_like(available_contrasts).to(self.device)
+    #     selected_contrast_id[unique_subject_ids, selected_contrast_ids, ...] = 1.0
+    #     return target_image, selected_contrast_id
     def select_available_contrasts(self, image_dicts):
         """
-        Select available contrasts as target.
-
-        ===INPUTS===
-        * image_dicts: list (num_contrasts, )
-            List of dictionaries. Each element is a dictionary received from dataloader. See dataset.py for details.
-
-        ===OUTPUTS===
-        * target_image: torch.Tensor (batch_size, 1, image_dim=224, image_dim=224)
-            Images as target for I2I.
-        *  selected_contrast_id: torch.Tensor (batch_size, num_contrasts)
-            Indicates which contrast has been selected as target image.
+        Always select T1PRE (contrast 0) as the reconstruction target.
+    
+        For overfitting / reconstruction diagnostic.
         """
-        target_image_combined = torch.cat([d['image'] for d in image_dicts], dim=1)
-        # (batch_size, num_contrasts)
-        available_contrasts = torch.stack([d['exists'] for d in image_dicts], dim=-1)
-        subject_ids = available_contrasts.nonzero(as_tuple=True)[0]
-        contrast_ids = available_contrasts.nonzero(as_tuple=True)[1]
-        unique_subject_ids = list(torch.unique(subject_ids))
-        selected_contrast_ids = []
-        for i in unique_subject_ids:
-            selected_contrast_ids.append(random.choice(contrast_ids[subject_ids == i]))
-        target_image = target_image_combined[unique_subject_ids, selected_contrast_ids, ...].unsqueeze(1).to(
-            self.device)
-        selected_contrast_id = torch.zeros_like(available_contrasts).to(self.device)
-        selected_contrast_id[unique_subject_ids, selected_contrast_ids, ...] = 1.0
+    
+        # [B, N_contrasts, D, H, W]
+        target_image_combined = torch.cat(
+            [d['image'] for d in image_dicts],
+            dim=1
+        )
+    
+        # [B, N_contrasts]
+        available_contrasts = torch.stack(
+            [d['exists'] for d in image_dicts],
+            dim=-1
+        )
+    
+        batch_size = available_contrasts.shape[0]
+    
+        # T1PRE is contrast 0
+        t1_id = 0
+    
+        # Sanity check
+        assert torch.all(
+            available_contrasts[:, t1_id] > 0
+        ), "T1PRE is missing for at least one subject."
+    
+        # Always use T1PRE as target
+        target_image = target_image_combined[
+            :, t1_id, ...
+        ].unsqueeze(1).to(self.device)
+    
+        # One-hot indicator:
+        # [1, 0, 0, 0] = T1PRE
+        selected_contrast_id = torch.zeros_like(
+            available_contrasts
+        ).to(self.device)
+    
+        selected_contrast_id[:, t1_id] = 1.0
+    
         return target_image, selected_contrast_id
 
     def decode(
