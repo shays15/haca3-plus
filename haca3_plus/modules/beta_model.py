@@ -1,10 +1,8 @@
-import os
 import random
 from datetime import datetime
 from pathlib import Path
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.optim import Adam
@@ -14,7 +12,7 @@ from tqdm import tqdm
 
 from .dataset import HACA3Dataset
 from .network import UNet3d
-from .utils import mkdir_p, reparameterize_logit, save_image_3d
+from .utils import mkdir_p, save_image_3d
 
 
 class BetaModel:
@@ -23,30 +21,43 @@ class BetaModel:
 
     Goal
     ----
-    Learn a spatial anatomical representation that is invariant
-    to MRI contrast.
+    Learn a beta representation that:
+        1. preserves anatomy well enough to reconstruct T1PRE, and
+        2. is similar across MRI contrasts from the same subject/session.
 
-    Positive pair:
-        same subject/session
-        different MRI contrast
-        same spatial location
+    Training pair
+    -------------
+    For each subject/session:
+        T1PRE -> beta -> decoder -> T1PRE
+        other contrast -> beta -> decoder -> T1PRE
 
-    Negative examples:
-        other spatial locations within the same subject.
+    Loss
+    ----
+        total_loss = reconstruction_loss
+                   + lambda_beta * beta_consistency_loss
+
+    The reconstruction term prevents beta from satisfying the
+    cross-contrast objective with a non-anatomical or collapsed code.
+
+    The beta-consistency term is computed on the deterministic softmax
+    probability representation, not on stochastic Gumbel samples.
     """
 
     def __init__(
         self,
         beta_dim=5,
         gpu_id=0,
-        temperature=0.1,
-        patch_size=16,
+        lambda_beta=0.1,
+        temperature=None,
+        patch_size=None,
     ):
-
         self.beta_dim = beta_dim
+        self.lambda_beta = lambda_beta
+
+        # Kept only so the existing train_beta.py interface does not break.
+        # They are not used by this reconstruction-based beta objective.
         self.temperature = temperature
         self.patch_size = patch_size
-        self.fixed_valid_pair = None
 
         self.device = torch.device(
             f"cuda:{gpu_id}"
@@ -54,14 +65,9 @@ class BetaModel:
             else "cpu"
         )
 
-        self.timestr = datetime.now().strftime(
-            "%Y%m%d-%H%M%S"
-        )
+        self.timestr = datetime.now().strftime("%Y%m%d-%H%M%S")
 
-        # --------------------------------------------------
-        # Same beta encoder architecture as HACA3+
-        # --------------------------------------------------
-
+        # Same beta encoder architecture as HACA3+.
         self.beta_encoder = UNet3d(
             in_ch=1,
             out_ch=beta_dim,
@@ -69,13 +75,30 @@ class BetaModel:
             final_act="none",
         ).to(self.device)
 
-        self.optimizer = None
+        # Pretraining-only decoder.
+        #
+        # It consumes the beta probability volume directly. This forces
+        # the representation that receives the consistency loss to retain
+        # enough spatial/anatomical information to reconstruct T1PRE.
+        self.decoder = UNet3d(
+            in_ch=beta_dim,
+            out_ch=1,
+            base_ch=8,
+            final_act="relu",
+        ).to(self.device)
 
+        self.optimizer = None
         self.train_loader = None
         self.valid_loader = None
 
         self.writer = None
         self.out_dir = None
+        self.model_dir = None
+        self.result_dir = None
+
+        self.contrasts = None
+        self.t1_index = None
+        self.fixed_valid_pair = None
 
 
     # ======================================================
@@ -90,6 +113,15 @@ class BetaModel:
         normalization_method="01",
         num_workers=0,
     ):
+        self.contrasts = list(contrasts)
+
+        if "T1PRE" not in self.contrasts:
+            raise ValueError(
+                "Beta pretraining requires T1PRE because T1PRE is "
+                "used as the anatomical reconstruction target."
+            )
+
+        self.t1_index = self.contrasts.index("T1PRE")
 
         train_dataset = HACA3Dataset(
             dataset_dirs=dataset_dirs,
@@ -125,6 +157,8 @@ class BetaModel:
         print("===== BETA DATASET =====")
         print(f"Training samples:   {len(train_dataset)}")
         print(f"Validation samples: {len(valid_dataset)}")
+        print(f"T1PRE index:        {self.t1_index}")
+        print(f"Lambda beta:        {self.lambda_beta}")
         print()
 
 
@@ -137,7 +171,6 @@ class BetaModel:
         out_dir,
         lr=1e-4,
     ):
-
         self.out_dir = Path(out_dir)
 
         mkdir_p(self.out_dir)
@@ -159,449 +192,356 @@ class BetaModel:
             str(self.out_dir / self.timestr)
         )
 
+        # The decoder is trained jointly during beta pretraining,
+        # but only beta_encoder needs to be transferred into HACA3+.
         self.optimizer = Adam(
-            self.beta_encoder.parameters(),
+            list(self.beta_encoder.parameters())
+            + list(self.decoder.parameters()),
             lr=lr,
         )
 
-    def get_fixed_validation_pair(self):
-    
-        if self.fixed_valid_pair is not None:
-            return self.fixed_valid_pair
-    
-        for image_dicts in self.valid_loader:
-    
-            available = torch.stack(
-                [
-                    d["exists"]
-                    for d in image_dicts
-                ],
-                dim=1,
-            )
-    
-            B = available.shape[0]
-    
-            for b in range(B):
-    
-                ids = torch.where(
-                    available[b] > 0
-                )[0].tolist()
-    
-                if len(ids) < 2:
-                    continue
-    
-                # --------------------------------------------------
-                # Prefer T1PRE + another contrast
-                # --------------------------------------------------
-    
-                if 0 in ids:
-    
-                    contrast_a = 0
-    
-                    other_ids = [
-                        i
-                        for i in ids
-                        if i != 0
-                    ]
-    
-                    contrast_b = other_ids[0]
-    
-                else:
-    
-                    contrast_a = ids[0]
-                    contrast_b = ids[1]
-    
-                image_a = (
-                    image_dicts[
-                        contrast_a
-                    ]["image"][b:b+1]
-                    .to(self.device)
-                )
-    
-                image_b = (
-                    image_dicts[
-                        contrast_b
-                    ]["image"][b:b+1]
-                    .to(self.device)
-                )
-    
-                self.fixed_valid_pair = (
-                    image_a,
-                    image_b,
-                    contrast_a,
-                    contrast_b,
-                )
-    
-                print(
-                    "Fixed beta validation pair:",
-                    contrast_a,
-                    contrast_b,
-                )
-    
-                return self.fixed_valid_pair
-    
-        raise RuntimeError(
-            "Could not find a validation subject "
-            "with at least two available contrasts."
-        )
+
     # ======================================================
     # BETA REPRESENTATION
     # ======================================================
 
-    def calculate_beta(
-        self,
-        image,
-    ):
+    def calculate_beta(self, image):
         """
-        image:
-            [B,1,D,H,W]
+        Parameters
+        ----------
+        image : torch.Tensor
+            [B, 1, D, H, W]
 
         Returns
         -------
-        logits:
-            [B,beta_dim,D,H,W]
+        logits : torch.Tensor
+            [B, beta_dim, D, H, W]
 
-        probabilities:
-            softmax representation used for contrastive training
+        probabilities : torch.Tensor
+            Deterministic softmax beta representation used for training.
 
-        beta:
-            final HACA3+ scalar beta map
-            [B,1,D,H,W]
+        beta : torch.Tensor
+            Deterministic scalar visualization of beta:
+            argmax channel / beta_dim.
         """
-
-        logits = self.beta_encoder(
-            image
-        )
-
-        # ----------------------------------------------
-        # Continuous representation for training
-        # ----------------------------------------------
+        logits = self.beta_encoder(image)
 
         probabilities = F.softmax(
             logits,
             dim=1,
         )
 
-        # ----------------------------------------------
-        # Original HACA3+ hard representation
-        # ----------------------------------------------
-
-        beta_onehot = reparameterize_logit(
-            logits
-        )
-
-        beta = self.channel_aggregation(
-            beta_onehot
-        )
-
-        return (
-            logits,
+        # Use deterministic argmax for metrics/visualization.
+        # This avoids validation images changing because of Gumbel sampling.
+        labels = torch.argmax(
             probabilities,
-            beta,
-        )
-
-
-    def channel_aggregation(
-        self,
-        beta_onehot,
-    ):
-
-        value_tensor = torch.arange(
-            self.beta_dim,
-            device=beta_onehot.device,
-            dtype=beta_onehot.dtype,
-        )
-
-        value_tensor = value_tensor.view(
-            1,
-            self.beta_dim,
-            1,
-            1,
-            1,
-        )
-
-        beta = (
-            beta_onehot
-            * value_tensor
-        ).sum(
             dim=1,
             keepdim=True,
         )
 
-        beta = beta / self.beta_dim
+        beta = (
+            labels.to(probabilities.dtype)
+            / self.beta_dim
+        )
 
-        return beta
+        return logits, probabilities, beta
 
 
-    # ======================================================
-    # PATCH FEATURES
-    # ======================================================
-
-    def get_patch_features(
-        self,
-        probabilities,
-    ):
+    def decode_beta(self, probabilities):
         """
-        probabilities:
-            [B,C,D,H,W]
-
-        Average the beta probability distribution within
-        non-overlapping spatial patches.
-
-        Output:
-            [B,N,C]
-
-        No trainable projection network is used.
+        Reconstruct T1PRE directly from the beta probability volume.
         """
-
-        p = self.patch_size
-
-        features = F.avg_pool3d(
-            probabilities,
-            kernel_size=p,
-            stride=p,
-        )
-
-        # [B,C,d,h,w]
-        # ->
-        # [B,N,C]
-
-        features = features.flatten(
-            start_dim=2
-        ).transpose(
-            1,
-            2
-        )
-
-        features = F.normalize(
-            features,
-            dim=-1,
-        )
-
-        return features
+        return self.decoder(probabilities)
 
 
     # ======================================================
-    # CONTRASTIVE LOSS
+    # LOSSES
     # ======================================================
 
-    def contrastive_loss(
-        self,
-        probabilities_a,
-        probabilities_b,
-    ):
-
-        feature_a = self.get_patch_features(
-            probabilities_a
+    @staticmethod
+    def reconstruction_loss(reconstruction, target):
+        return F.l1_loss(
+            reconstruction,
+            target,
         )
 
-        feature_b = self.get_patch_features(
-            probabilities_b
-        )
 
-        # ----------------------------------------------
-        # Cross-contrast spatial similarity
-        # ----------------------------------------------
-
-        logits_ab = torch.bmm(
-            feature_a,
-            feature_b.transpose(1, 2),
-        )
-
-        logits_ab = (
-            logits_ab
-            / self.temperature
-        )
-
-        B, N, _ = logits_ab.shape
-
-        targets = torch.arange(
-            N,
-            device=self.device,
-        )
-
-        targets = targets.unsqueeze(0).expand(
-            B,
-            -1,
-        )
-
-        # A -> B
-
-        loss_ab = F.cross_entropy(
-            logits_ab.reshape(
-                B * N,
-                N,
-            ),
-            targets.reshape(
-                B * N
-            ),
-        )
-
-        # B -> A
-
-        logits_ba = logits_ab.transpose(
-            1,
-            2
-        )
-
-        loss_ba = F.cross_entropy(
-            logits_ba.reshape(
-                B * N,
-                N,
-            ),
-            targets.reshape(
-                B * N
-            ),
-        )
-
-        return 0.5 * (
-            loss_ab + loss_ba
+    @staticmethod
+    def beta_consistency_loss(probabilities_a, probabilities_b):
+        """
+        Encourage the same subject/session to have the same beta
+        probability representation across contrasts.
+        """
+        return F.l1_loss(
+            probabilities_a,
+            probabilities_b,
         )
 
 
     # ======================================================
-    # DIRECT BETA METRICS
+    # METRICS
     # ======================================================
 
     @staticmethod
     def beta_metrics(
+        probabilities_a,
+        probabilities_b,
         beta_a,
         beta_b,
     ):
-    
-        # ======================================================
-        # CROSS-CONTRAST MAE
-        # ======================================================
-    
-        mae = F.l1_loss(
+        # --------------------------------------------------
+        # Soft probability MAE
+        # --------------------------------------------------
+        probability_mae = F.l1_loss(
+            probabilities_a,
+            probabilities_b,
+        )
+
+        # --------------------------------------------------
+        # Hard/scalar beta MAE
+        # --------------------------------------------------
+        beta_mae = F.l1_loss(
             beta_a,
             beta_b,
         )
-    
-    
-        # ======================================================
-        # CROSS-CONTRAST CORRELATION
-        # ======================================================
-    
-        a = beta_a.flatten(
-            start_dim=1
-        )
-    
-        b = beta_b.flatten(
-            start_dim=1
-        )
-    
-        a_centered = (
-            a
-            - a.mean(
-                dim=1,
-                keepdim=True,
-            )
-        )
-    
-        b_centered = (
-            b
-            - b.mean(
-                dim=1,
-                keepdim=True,
-            )
-        )
-    
-        correlation = (
-            (a_centered * b_centered).sum(dim=1)
-            /
-            (
-                torch.sqrt(
-                    (a_centered ** 2).sum(dim=1)
-                )
-                *
-                torch.sqrt(
-                    (b_centered ** 2).sum(dim=1)
-                )
-                + 1e-8
-            )
-        ).mean()
-    
-    
-        # ======================================================
-        # SPATIAL VARIANCE
-        # ======================================================
-    
-        std_a = a.std(
-            dim=1
-        ).mean()
-    
-        std_b = b.std(
-            dim=1
-        ).mean()
-    
-        beta_std = 0.5 * (
-            std_a + std_b
-        )
-    
-    
-        return (
-            mae,
-            correlation,
-            beta_std,
-        )
 
+        # --------------------------------------------------
+        # Scalar beta correlation
+        # --------------------------------------------------
+        a = beta_a.flatten(start_dim=1)
+        b = beta_b.flatten(start_dim=1)
 
-    # ======================================================
-    # SELECT CONTRAST PAIR
-    # ======================================================
-
-    def select_contrast_pair(
-        self,
-        image_dicts,
-    ):
-
-        available = torch.stack(
-            [
-                d["exists"]
-                for d in image_dicts
-            ],
+        a_centered = a - a.mean(
             dim=1,
+            keepdim=True,
         )
+
+        b_centered = b - b.mean(
+            dim=1,
+            keepdim=True,
+        )
+
+        numerator = (
+            a_centered
+            * b_centered
+        ).sum(dim=1)
+
+        denominator = (
+            torch.sqrt(
+                (a_centered ** 2).sum(dim=1)
+            )
+            *
+            torch.sqrt(
+                (b_centered ** 2).sum(dim=1)
+            )
+        )
+
+        correlation = (
+            numerator
+            / (denominator + 1e-8)
+        ).mean()
+
+        # --------------------------------------------------
+        # Spatial beta std
+        # --------------------------------------------------
+        beta_std = 0.5 * (
+            a.std(dim=1).mean()
+            + b.std(dim=1).mean()
+        )
+
+        # --------------------------------------------------
+        # Probability entropy
+        #
+        # Very low entropy everywhere can indicate hard channel
+        # assignments; very high entropy near log(beta_dim) means
+        # near-uniform probabilities. This is a diagnostic only.
+        # --------------------------------------------------
+        eps = 1e-8
+
+        entropy_a = -(
+            probabilities_a
+            * torch.log(
+                probabilities_a + eps
+            )
+        ).sum(dim=1).mean()
+
+        entropy_b = -(
+            probabilities_b
+            * torch.log(
+                probabilities_b + eps
+            )
+        ).sum(dim=1).mean()
+
+        probability_entropy = 0.5 * (
+            entropy_a + entropy_b
+        )
+
+        return {
+            "probability_mae": probability_mae,
+            "beta_mae": beta_mae,
+            "beta_corr": correlation,
+            "beta_std": beta_std,
+            "probability_entropy": probability_entropy,
+        }
+
+
+    # ======================================================
+    # SELECT T1 + OTHER-CONTRAST PAIRS
+    # ======================================================
+
+    def select_training_pairs(self, image_dicts):
+        """
+        For each subject in the batch, select:
+            target/input A = T1PRE
+            input B        = one random available non-T1 contrast
+
+        Subjects without T1PRE or without another contrast are skipped.
+
+        One non-T1 contrast is sampled per subject per iteration so that
+        memory usage stays close to two forward passes per subject rather
+        than loading every contrast through the encoder simultaneously.
+        """
+        if self.t1_index is None:
+            raise RuntimeError(
+                "load_dataset() must be called before training."
+            )
 
         pairs = []
 
-        B = available.shape[0]
+        batch_size = image_dicts[self.t1_index]["image"].shape[0]
 
-        for b in range(B):
+        for b in range(batch_size):
+            t1_exists = (
+                image_dicts[self.t1_index]["exists"][b].item()
+                > 0
+            )
 
-            ids = torch.where(
-                available[b] > 0
-            )[0].tolist()
-
-            if len(ids) < 2:
+            if not t1_exists:
                 continue
 
-            a, c = random.sample(
-                ids,
-                2,
+            available_other_ids = []
+
+            for contrast_id, image_dict in enumerate(image_dicts):
+                if contrast_id == self.t1_index:
+                    continue
+
+                if image_dict["exists"][b].item() > 0:
+                    available_other_ids.append(
+                        contrast_id
+                    )
+
+            if len(available_other_ids) == 0:
+                continue
+
+            other_id = random.choice(
+                available_other_ids
             )
 
-            image_a = (
-                image_dicts[a]["image"][b:b+1]
-                .to(self.device)
+            t1_image = (
+                image_dicts[self.t1_index]["image"][b:b + 1]
+                .to(
+                    self.device,
+                    non_blocking=True,
+                )
             )
 
-            image_b = (
-                image_dicts[c]["image"][b:b+1]
-                .to(self.device)
+            other_image = (
+                image_dicts[other_id]["image"][b:b + 1]
+                .to(
+                    self.device,
+                    non_blocking=True,
+                )
             )
 
             pairs.append(
                 (
-                    image_a,
-                    image_b,
-                    a,
-                    c,
+                    t1_image,
+                    other_image,
+                    self.t1_index,
+                    other_id,
                 )
             )
 
         return pairs
+
+
+    # ======================================================
+    # FIXED VALIDATION PAIR
+    # ======================================================
+
+    def get_fixed_validation_pair(self):
+        """
+        Always return the same validation subject and contrast pair
+        for saved visualizations.
+        """
+        if self.fixed_valid_pair is not None:
+            return self.fixed_valid_pair
+
+        if self.valid_loader is None:
+            raise RuntimeError(
+                "Validation loader has not been initialized."
+            )
+
+        for image_dicts in self.valid_loader:
+            batch_size = (
+                image_dicts[self.t1_index]["image"].shape[0]
+            )
+
+            for b in range(batch_size):
+                if (
+                    image_dicts[self.t1_index]["exists"][b].item()
+                    == 0
+                ):
+                    continue
+
+                other_ids = []
+
+                for contrast_id, image_dict in enumerate(
+                    image_dicts
+                ):
+                    if contrast_id == self.t1_index:
+                        continue
+
+                    if image_dict["exists"][b].item() > 0:
+                        other_ids.append(
+                            contrast_id
+                        )
+
+                if len(other_ids) == 0:
+                    continue
+
+                other_id = other_ids[0]
+
+                t1_image = (
+                    image_dicts[self.t1_index]["image"][b:b + 1]
+                    .to(self.device)
+                )
+
+                other_image = (
+                    image_dicts[other_id]["image"][b:b + 1]
+                    .to(self.device)
+                )
+
+                self.fixed_valid_pair = (
+                    t1_image,
+                    other_image,
+                    self.t1_index,
+                    other_id,
+                )
+
+                print(
+                    "Fixed beta validation pair:",
+                    self.contrasts[self.t1_index],
+                    "vs",
+                    self.contrasts[other_id],
+                )
+
+                return self.fixed_valid_pair
+
+        raise RuntimeError(
+            "Could not find a validation subject with T1PRE "
+            "and at least one additional contrast."
+        )
 
 
     # ======================================================
@@ -614,18 +554,27 @@ class BetaModel:
         epoch,
         is_train=True,
     ):
-
         if is_train:
             self.beta_encoder.train()
+            self.decoder.train()
         else:
             self.beta_encoder.eval()
+            self.decoder.eval()
 
-        total_loss = 0.0
-        num_batches = 0
-        total_mae = 0.0
-        total_corr = 0.0
+        totals = {
+            "loss": 0.0,
+            "recon_loss": 0.0,
+            "recon_t1": 0.0,
+            "recon_other": 0.0,
+            "beta_loss": 0.0,
+            "probability_mae": 0.0,
+            "beta_mae": 0.0,
+            "beta_corr": 0.0,
+            "beta_std": 0.0,
+            "probability_entropy": 0.0,
+        }
+
         num_pairs = 0
-        total_std = 0.0
 
         context = (
             torch.enable_grad()
@@ -634,7 +583,6 @@ class BetaModel:
         )
 
         with context:
-
             progress = tqdm(
                 loader,
                 desc=(
@@ -645,107 +593,147 @@ class BetaModel:
             )
 
             for image_dicts in progress:
-
-                pairs = self.select_contrast_pair(
+                pairs = self.select_training_pairs(
                     image_dicts
                 )
 
                 if len(pairs) == 0:
                     continue
 
-                if is_train:
-                    self.optimizer.zero_grad(
-                        set_to_none=True
-                    )
-
-                losses = []
-
+                # With the expected beta batch size of 1 this loop has
+                # one pair. Keeping the loop makes the code work for
+                # larger subject batches too.
                 for (
-                    image_a,
-                    image_b,
-                    contrast_a,
-                    contrast_b,
+                    t1_image,
+                    other_image,
+                    t1_id,
+                    other_id,
                 ) in pairs:
+                    if is_train:
+                        self.optimizer.zero_grad(
+                            set_to_none=True
+                        )
 
+                    # ------------------------------------------
+                    # Encode T1PRE
+                    # ------------------------------------------
                     (
-                        logits_a,
-                        probabilities_a,
-                        beta_a,
+                        logits_t1,
+                        probabilities_t1,
+                        beta_t1,
                     ) = self.calculate_beta(
-                        image_a
+                        t1_image
                     )
 
+                    # ------------------------------------------
+                    # Encode another contrast
+                    # ------------------------------------------
                     (
-                        logits_b,
-                        probabilities_b,
-                        beta_b,
+                        logits_other,
+                        probabilities_other,
+                        beta_other,
                     ) = self.calculate_beta(
-                        image_b
+                        other_image
                     )
 
-                    loss = self.contrastive_loss(
-                        probabilities_a,
-                        probabilities_b,
+                    # ------------------------------------------
+                    # Reconstruct the SAME T1PRE target from
+                    # both beta representations.
+                    # ------------------------------------------
+                    reconstruction_t1 = self.decode_beta(
+                        probabilities_t1
                     )
 
-                    mae, corr, beta_std = self.beta_metrics(
-                        beta_a,
-                        beta_b,
+                    reconstruction_other = self.decode_beta(
+                        probabilities_other
                     )
-                    
-                    total_mae += mae.item()
-                    total_corr += corr.item()
-                    total_std += beta_std.item()
+
+                    loss_recon_t1 = (
+                        self.reconstruction_loss(
+                            reconstruction_t1,
+                            t1_image,
+                        )
+                    )
+
+                    loss_recon_other = (
+                        self.reconstruction_loss(
+                            reconstruction_other,
+                            t1_image,
+                        )
+                    )
+
+                    loss_recon = 0.5 * (
+                        loss_recon_t1
+                        + loss_recon_other
+                    )
+
+                    # ------------------------------------------
+                    # Cross-contrast beta consistency
+                    # ------------------------------------------
+                    loss_beta = (
+                        self.beta_consistency_loss(
+                            probabilities_t1,
+                            probabilities_other,
+                        )
+                    )
+
+                    # ------------------------------------------
+                    # Total
+                    # ------------------------------------------
+                    loss = (
+                        loss_recon
+                        + self.lambda_beta
+                        * loss_beta
+                    )
+
+                    if is_train:
+                        loss.backward()
+                        self.optimizer.step()
+
+                    # ------------------------------------------
+                    # Diagnostics
+                    # ------------------------------------------
+                    metrics = self.beta_metrics(
+                        probabilities_t1.detach(),
+                        probabilities_other.detach(),
+                        beta_t1.detach(),
+                        beta_other.detach(),
+                    )
+
+                    totals["loss"] += loss.item()
+                    totals["recon_loss"] += (
+                        loss_recon.item()
+                    )
+                    totals["recon_t1"] += (
+                        loss_recon_t1.item()
+                    )
+                    totals["recon_other"] += (
+                        loss_recon_other.item()
+                    )
+                    totals["beta_loss"] += (
+                        loss_beta.item()
+                    )
+
+                    for name, value in metrics.items():
+                        totals[name] += value.item()
+
                     num_pairs += 1
 
-                    losses.append(loss)
+                    progress.set_postfix(
+                        total=f"{loss.item():.4f}",
+                        recon=f"{loss_recon.item():.4f}",
+                        beta=f"{loss_beta.item():.4f}",
+                    )
 
-                loss = torch.stack(
-                    losses
-                ).mean()
-
-                if is_train:
-
-                    loss.backward()
-
-                    self.optimizer.step()
-
-                total_loss += loss.item()
-                num_batches += 1
-
-                progress.set_postfix(
-                    loss=f"{loss.item():.4f}"
-                )
-
-        n_batches = max(
-            len(loader),
+        denominator = max(
+            num_pairs,
             1,
         )
 
-        mean_loss = total_loss / max(num_batches, 1)
-
-        mean_mae = (
-            total_mae
-            / max(num_pairs, 1)
-        )
-
-        mean_corr = (
-            total_corr
-            / max(num_pairs, 1)
-        )
-
         return {
-        "loss": mean_loss,
-        "beta_mae": (
-            total_mae / max(num_pairs, 1)
-        ),
-        "beta_corr": (
-            total_corr / max(num_pairs, 1)
-        ),
-        "beta_std": (
-            total_std / max(num_pairs, 1)
-        ),
-    }
+            name: value / denominator
+            for name, value in totals.items()
+        }
 
 
     # ======================================================
@@ -757,13 +745,11 @@ class BetaModel:
         num_epochs,
         save_every=100,
         image_every=10,
-    ):        
-
+    ):
         for epoch in range(
             1,
             num_epochs + 1,
         ):
-
             train_metrics = self.run_epoch(
                 self.train_loader,
                 epoch,
@@ -776,8 +762,10 @@ class BetaModel:
                 is_train=False,
             )
 
+            # ----------------------------------------------
+            # TensorBoard
+            # ----------------------------------------------
             for name, value in train_metrics.items():
-
                 self.writer.add_scalar(
                     f"train/{name}",
                     value,
@@ -785,55 +773,78 @@ class BetaModel:
                 )
 
             for name, value in valid_metrics.items():
-
                 self.writer.add_scalar(
                     f"valid/{name}",
                     value,
                     epoch,
                 )
 
+            self.writer.add_scalar(
+                "lr",
+                self.optimizer.param_groups[0]["lr"],
+                epoch,
+            )
+
             print(
                 f"Epoch {epoch} | "
                 f"train={train_metrics['loss']:.4f} | "
                 f"valid={valid_metrics['loss']:.4f} | "
-                f"MAE={valid_metrics['beta_mae']:.4f} | "
-                f"corr={valid_metrics['beta_corr']:.4f}"
+                f"recon={valid_metrics['recon_loss']:.4f} | "
+                f"beta={valid_metrics['beta_loss']:.4f} | "
+                f"beta MAE={valid_metrics['beta_mae']:.4f} | "
+                f"corr={valid_metrics['beta_corr']:.4f} | "
+                f"std={valid_metrics['beta_std']:.4f}"
             )
 
-            if (
-                epoch % save_every == 0
-                or epoch == num_epochs
-            ):
-
-                self.save_checkpoint(
-                    epoch
-                )
+            # ----------------------------------------------
+            # Save visual validation output
+            # ----------------------------------------------
             if (
                 epoch == 1
                 or epoch % image_every == 0
                 or epoch == num_epochs
             ):
-            
                 self.save_validation_images(
                     epoch
                 )
 
+            # ----------------------------------------------
+            # Save checkpoint
+            # ----------------------------------------------
+            if (
+                epoch % save_every == 0
+                or epoch == num_epochs
+            ):
+                self.save_checkpoint(
+                    epoch
+                )
+
+        if self.writer is not None:
+            self.writer.flush()
+
 
     # ======================================================
-    # SAVE
+    # SAVE CHECKPOINT
     # ======================================================
 
     def save_checkpoint(
         self,
         epoch,
     ):
-
         checkpoint = {
             "epoch": epoch,
             "beta_encoder":
                 self.beta_encoder.state_dict(),
+            "decoder":
+                self.decoder.state_dict(),
             "optimizer":
                 self.optimizer.state_dict(),
+            "beta_dim":
+                self.beta_dim,
+            "lambda_beta":
+                self.lambda_beta,
+            "contrasts":
+                self.contrasts,
         }
 
         torch.save(
@@ -842,68 +853,137 @@ class BetaModel:
             / f"beta_model_{epoch}.pt",
         )
 
+
+    # ======================================================
+    # SAVE VALIDATION IMAGES
+    # ======================================================
+
     def save_validation_images(
         self,
         epoch,
     ):
-    
         (
-            image_a,
-            image_b,
-            contrast_a,
-            contrast_b,
+            t1_image,
+            other_image,
+            t1_id,
+            other_id,
         ) = self.get_fixed_validation_pair()
-    
-    
+
+        beta_was_training = self.beta_encoder.training
+        decoder_was_training = self.decoder.training
+
         self.beta_encoder.eval()
-    
+        self.decoder.eval()
+
         with torch.no_grad():
-    
             (
-                logits_a,
-                probabilities_a,
-                beta_a,
+                logits_t1,
+                probabilities_t1,
+                beta_t1,
             ) = self.calculate_beta(
-                image_a
+                t1_image
             )
-    
+
             (
-                logits_b,
-                probabilities_b,
-                beta_b,
+                logits_other,
+                probabilities_other,
+                beta_other,
             ) = self.calculate_beta(
-                image_b
+                other_image
             )
-    
-    
-            # ==================================================
-            # DIFFERENCE MAP
-            # ==================================================
-    
+
+            reconstruction_t1 = self.decode_beta(
+                probabilities_t1
+            )
+
+            reconstruction_other = self.decode_beta(
+                probabilities_other
+            )
+
             beta_difference = torch.abs(
-                beta_a - beta_b
+                beta_t1
+                - beta_other
             )
-    
-    
-            # ==================================================
-            # SAVE NIFTI
-            # ==================================================
-    
-            output_path = (
+
+            probability_difference = torch.mean(
+                torch.abs(
+                    probabilities_t1
+                    - probabilities_other
+                ),
+                dim=1,
+                keepdim=True,
+            )
+
+            # ----------------------------------------------
+            # Overview NIfTI
+            #
+            # volume 0: T1PRE input / target
+            # volume 1: other-contrast input
+            # volume 2: reconstruction from T1 beta
+            # volume 3: reconstruction from other beta
+            # volume 4: scalar beta from T1
+            # volume 5: scalar beta from other contrast
+            # volume 6: |scalar beta T1 - scalar beta other|
+            # volume 7: mean channel-wise probability difference
+            # ----------------------------------------------
+            overview_path = (
                 self.result_dir
                 / (
                     f"beta_epoch_{epoch:05d}"
-                    f"_c{contrast_a}_c{contrast_b}.nii.gz"
+                    f"_{self.contrasts[t1_id]}"
+                    f"_vs_{self.contrasts[other_id]}"
+                    f"_overview.nii.gz"
                 )
             )
-    
+
             save_image_3d(
                 [
-                    image_a,
-                    image_b,
-                    beta_a,
-                    beta_b,
+                    t1_image,
+                    other_image,
+                    reconstruction_t1,
+                    reconstruction_other,
+                    beta_t1,
+                    beta_other,
                     beta_difference,
+                    probability_difference,
                 ],
-                str(output_path),
+                str(overview_path),
             )
+
+            # ----------------------------------------------
+            # Save all soft beta probability channels.
+            #
+            # These are the representation actually used by
+            # the reconstruction and consistency objectives.
+            # ----------------------------------------------
+            t1_probability_volumes = [
+                probabilities_t1[:, i:i + 1]
+                for i in range(self.beta_dim)
+            ]
+
+            other_probability_volumes = [
+                probabilities_other[:, i:i + 1]
+                for i in range(self.beta_dim)
+            ]
+
+            probability_path = (
+                self.result_dir
+                / (
+                    f"beta_epoch_{epoch:05d}"
+                    f"_{self.contrasts[t1_id]}"
+                    f"_vs_{self.contrasts[other_id]}"
+                    f"_probabilities.nii.gz"
+                )
+            )
+
+            save_image_3d(
+                t1_probability_volumes
+                + other_probability_volumes,
+                str(probability_path),
+            )
+
+        if beta_was_training:
+            self.beta_encoder.train()
+
+        if decoder_was_training:
+            self.decoder.train()
