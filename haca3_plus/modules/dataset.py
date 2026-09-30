@@ -40,33 +40,6 @@ crop_shape = (
     128,
 )
 
-
-# ==========================================================
-# DEGRADATION / ARTIFACT AUGMENTATION
-# ==========================================================
-
-transform_dict = {
-    tio.RandomMotion(
-        degrees=(15, 30),
-        translation=(10, 20),
-    ): 0.25,
-
-    tio.RandomNoise(
-        std=(0.01, 0.1),
-    ): 0.25,
-
-    tio.RandomGhosting(
-        num_ghosts=(4, 10),
-    ): 0.25,
-
-    tio.RandomBiasField(): 0.25,
-}
-
-degradation_transform = tio.OneOf(
-    transform_dict
-)
-
-
 # ==========================================================
 # IMAGE LOADING
 # ==========================================================
@@ -291,11 +264,6 @@ def background_removal(
 
         image_dict["image"] = (
             image_dict["image"]
-            * mask
-        )
-
-        image_dict["image_degrade"] = (
-            image_dict["image_degrade"]
             * mask
         )
 
@@ -605,32 +573,6 @@ class HACA3Dataset(Dataset):
                 self.normalization_method,
             )
 
-
-            # ----------------------------------------------
-            # Apply 3D artifact degradation
-            #
-            # TorchIO input:
-            # [C,D,H,W]
-            # ----------------------------------------------
-
-            if (
-                self.mode == "train"
-                and exists == 1
-            ):
-
-                image_degrade = (
-                    degradation_transform(
-                        image
-                    )
-                )
-
-            else:
-
-                image_degrade = (
-                    image.clone()
-                )
-
-
             # ----------------------------------------------
             # Store data
             # ----------------------------------------------
@@ -639,9 +581,6 @@ class HACA3Dataset(Dataset):
 
                 "image":
                     image,
-
-                "image_degrade":
-                    image_degrade,
 
                 "site_id":
                     site_id,
