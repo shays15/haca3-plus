@@ -46,6 +46,7 @@ class BetaModel:
         self.beta_dim = beta_dim
         self.temperature = temperature
         self.patch_size = patch_size
+        self.fixed_valid_pair = None
 
         self.device = torch.device(
             f"cuda:{gpu_id}"
@@ -162,8 +163,96 @@ class BetaModel:
             self.beta_encoder.parameters(),
             lr=lr,
         )
+        if (
+            epoch == 1
+            or epoch % image_every == 0
+            or epoch == num_epochs
+        ):
+        
+            self.save_validation_images(
+                epoch
+            )
 
-
+    def get_fixed_validation_pair(self):
+    
+        if self.fixed_valid_pair is not None:
+            return self.fixed_valid_pair
+    
+        for image_dicts in self.valid_loader:
+    
+            available = torch.stack(
+                [
+                    d["exists"]
+                    for d in image_dicts
+                ],
+                dim=1,
+            )
+    
+            B = available.shape[0]
+    
+            for b in range(B):
+    
+                ids = torch.where(
+                    available[b] > 0
+                )[0].tolist()
+    
+                if len(ids) < 2:
+                    continue
+    
+                # --------------------------------------------------
+                # Prefer T1PRE + another contrast
+                # --------------------------------------------------
+    
+                if 0 in ids:
+    
+                    contrast_a = 0
+    
+                    other_ids = [
+                        i
+                        for i in ids
+                        if i != 0
+                    ]
+    
+                    contrast_b = other_ids[0]
+    
+                else:
+    
+                    contrast_a = ids[0]
+                    contrast_b = ids[1]
+    
+                image_a = (
+                    image_dicts[
+                        contrast_a
+                    ]["image"][b:b+1]
+                    .to(self.device)
+                )
+    
+                image_b = (
+                    image_dicts[
+                        contrast_b
+                    ]["image"][b:b+1]
+                    .to(self.device)
+                )
+    
+                self.fixed_valid_pair = (
+                    image_a,
+                    image_b,
+                    contrast_a,
+                    contrast_b,
+                )
+    
+                print(
+                    "Fixed beta validation pair:",
+                    contrast_a,
+                    contrast_b,
+                )
+    
+                return self.fixed_valid_pair
+    
+        raise RuntimeError(
+            "Could not find a validation subject "
+            "with at least two available contrasts."
+        )
     # ======================================================
     # BETA REPRESENTATION
     # ======================================================
@@ -388,46 +477,83 @@ class BetaModel:
         beta_a,
         beta_b,
     ):
-
+    
+        # ======================================================
+        # CROSS-CONTRAST MAE
+        # ======================================================
+    
         mae = F.l1_loss(
             beta_a,
             beta_b,
         )
-
+    
+    
+        # ======================================================
+        # CROSS-CONTRAST CORRELATION
+        # ======================================================
+    
         a = beta_a.flatten(
             start_dim=1
         )
-
+    
         b = beta_b.flatten(
             start_dim=1
         )
-
-        a = a - a.mean(
-            dim=1,
-            keepdim=True,
+    
+        a_centered = (
+            a
+            - a.mean(
+                dim=1,
+                keepdim=True,
+            )
         )
-
-        b = b - b.mean(
-            dim=1,
-            keepdim=True,
+    
+        b_centered = (
+            b
+            - b.mean(
+                dim=1,
+                keepdim=True,
+            )
         )
-
+    
         correlation = (
-            (a * b).sum(dim=1)
+            (a_centered * b_centered).sum(dim=1)
             /
             (
                 torch.sqrt(
-                    (a ** 2).sum(dim=1)
+                    (a_centered ** 2).sum(dim=1)
                 )
                 *
                 torch.sqrt(
-                    (b ** 2).sum(dim=1)
+                    (b_centered ** 2).sum(dim=1)
                 )
                 + 1e-8
             )
         ).mean()
-
-        return mae, correlation
+    
+    
+        # ======================================================
+        # SPATIAL VARIANCE
+        # ======================================================
+    
+        std_a = a.std(
+            dim=1
+        ).mean()
+    
+        std_b = b.std(
+            dim=1
+        ).mean()
+    
+        beta_std = 0.5 * (
+            std_a + std_b
+        )
+    
+    
+        return (
+            mae,
+            correlation,
+            beta_std,
+        )
 
 
     # ======================================================
@@ -507,6 +633,7 @@ class BetaModel:
         total_mae = 0.0
         total_corr = 0.0
         num_pairs = 0
+        total_std = 0.0
 
         context = (
             torch.enable_grad()
@@ -573,12 +700,17 @@ class BetaModel:
                         beta_a,
                         beta_b,
                     )
-
-                    losses.append(loss)
-
+                    mae, corr, beta_std = self.beta_metrics(
+                        beta_a,
+                        beta_b,
+                    )
+                    
                     total_mae += mae.item()
                     total_corr += corr.item()
+                    total_std += beta_std.item()
                     num_pairs += 1
+
+                    losses.append(loss)
 
                 loss = torch.stack(
                     losses
@@ -616,10 +748,17 @@ class BetaModel:
         )
 
         return {
-            "loss": mean_loss,
-            "beta_mae": mean_mae,
-            "beta_corr": mean_corr,
-        }
+        "loss": mean_loss,
+        "beta_mae": (
+            total_mae / max(num_pairs, 1)
+        ),
+        "beta_corr": (
+            total_corr / max(num_pairs, 1)
+        ),
+        "beta_std": (
+            total_std / max(num_pairs, 1)
+        ),
+    }
 
 
     # ======================================================
@@ -630,7 +769,8 @@ class BetaModel:
         self,
         num_epochs,
         save_every=100,
-    ):
+        image_every=10,
+    ):        
 
         for epoch in range(
             1,
@@ -705,3 +845,69 @@ class BetaModel:
             self.model_dir
             / f"beta_model_{epoch}.pt",
         )
+
+    def save_validation_images(
+        self,
+        epoch,
+    ):
+    
+        (
+            image_a,
+            image_b,
+            contrast_a,
+            contrast_b,
+        ) = self.get_fixed_validation_pair()
+    
+    
+        self.beta_encoder.eval()
+    
+        with torch.no_grad():
+    
+            (
+                logits_a,
+                probabilities_a,
+                beta_a,
+            ) = self.calculate_beta(
+                image_a
+            )
+    
+            (
+                logits_b,
+                probabilities_b,
+                beta_b,
+            ) = self.calculate_beta(
+                image_b
+            )
+    
+    
+            # ==================================================
+            # DIFFERENCE MAP
+            # ==================================================
+    
+            beta_difference = torch.abs(
+                beta_a - beta_b
+            )
+    
+    
+            # ==================================================
+            # SAVE NIFTI
+            # ==================================================
+    
+            output_path = (
+                self.result_dir
+                / (
+                    f"beta_epoch_{epoch:05d}"
+                    f"_c{contrast_a}_c{contrast_b}.nii.gz"
+                )
+            )
+    
+            save_image_3d(
+                [
+                    image_a,
+                    image_b,
+                    beta_a,
+                    beta_b,
+                    beta_difference,
+                ],
+                str(output_path),
+            )
