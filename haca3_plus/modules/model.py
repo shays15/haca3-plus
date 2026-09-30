@@ -911,10 +911,13 @@ class HACA3:
         # 4C. COMBINE BETA OBJECTIVES
         # ------------------------------------------------------
         
+        # beta_loss = (
+        #     1.0 * beta_consistency_loss
+        #     + 0.25 * beta_spatial_loss
+        #     + 0.10 * beta_source_loss
+        # )
         beta_loss = (
             1.0 * beta_consistency_loss
-            + 0.25 * beta_spatial_loss
-            + 0.10 * beta_source_loss
         )
     
     
@@ -943,18 +946,12 @@ class HACA3:
             lambda_beta * beta_loss
         )
         
-        # total_loss = (
-        #     weighted_rec
-        #     + weighted_per
-        #     + weighted_kld
-        #     + weighted_beta
-        # )
         total_loss = (
             weighted_rec
             + weighted_per
             + weighted_kld
+            + weighted_beta
         )
-    
     
         # ======================================================
         # 6. OPTIMIZATION
