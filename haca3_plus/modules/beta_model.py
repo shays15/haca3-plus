@@ -163,15 +163,6 @@ class BetaModel:
             self.beta_encoder.parameters(),
             lr=lr,
         )
-        if (
-            epoch == 1
-            or epoch % image_every == 0
-            or epoch == num_epochs
-        ):
-        
-            self.save_validation_images(
-                epoch
-            )
 
     def get_fixed_validation_pair(self):
     
@@ -819,6 +810,15 @@ class BetaModel:
             ):
 
                 self.save_checkpoint(
+                    epoch
+                )
+            if (
+                epoch == 1
+                or epoch % image_every == 0
+                or epoch == num_epochs
+            ):
+            
+                self.save_validation_images(
                     epoch
                 )
 
