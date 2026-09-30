@@ -43,6 +43,16 @@ def main(args=None):
         choices=["01", "wm", "none"],
     )
 
+    parser.add_argument(
+        "--image-every",
+        type=int,
+        default=10,
+        help=(
+            "Save beta validation NIfTI "
+            "every N epochs."
+        ),
+    )
+
 
     # ======================================================
     # OUTPUT
@@ -241,6 +251,7 @@ def main(args=None):
     beta_model.train(
         num_epochs=args.epochs,
         save_every=args.save_every,
+        image_every=args.image_every,
     )
 
 
