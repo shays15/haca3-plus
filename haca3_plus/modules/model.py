@@ -254,16 +254,9 @@ class HACA3:
 
     def prepare_source_images(self, image_dicts):
         num_contrasts = len(image_dicts)
-        num_contrasts_with_degradation = np.random.permutation(num_contrasts)[0]
-        degradation_ids = sorted(np.random.choice(range(num_contrasts),
-                                                  num_contrasts_with_degradation,
-                                                  replace=False))
         source_images = []
         for i in range(num_contrasts):
-            if i in degradation_ids:
-                source_images.append(image_dicts[i]['image_degrade'].to(self.device))
-            else:
-                source_images.append(image_dicts[i]['image'].to(self.device))
+            source_images.append(image_dicts[i]['image'].to(self.device))
         return source_images
 
     def channel_aggregation(self, beta_onehot_encode):
