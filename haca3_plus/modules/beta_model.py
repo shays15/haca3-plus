@@ -621,6 +621,7 @@ class BetaModel:
             self.beta_encoder.eval()
 
         total_loss = 0.0
+        num_batches = 0
         total_mae = 0.0
         total_corr = 0.0
         num_pairs = 0
@@ -687,10 +688,6 @@ class BetaModel:
                         probabilities_b,
                     )
 
-                    mae, corr = self.beta_metrics(
-                        beta_a,
-                        beta_b,
-                    )
                     mae, corr, beta_std = self.beta_metrics(
                         beta_a,
                         beta_b,
@@ -714,6 +711,7 @@ class BetaModel:
                     self.optimizer.step()
 
                 total_loss += loss.item()
+                num_batches += 1
 
                 progress.set_postfix(
                     loss=f"{loss.item():.4f}"
@@ -724,9 +722,7 @@ class BetaModel:
             1,
         )
 
-        mean_loss = (
-            total_loss / n_batches
-        )
+        mean_loss = total_loss / max(num_batches, 1)
 
         mean_mae = (
             total_mae
