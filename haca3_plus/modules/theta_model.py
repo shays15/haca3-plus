@@ -13,6 +13,7 @@ from tqdm import tqdm
 from .dataset import HACA3Dataset
 from .network import ThetaEncoder3d
 from .utils import mkdir_p, KLDivergenceLoss
+import matplotlib.pyplot as plt
 
 
 class ThetaModel:
@@ -110,6 +111,8 @@ class ThetaModel:
             num_workers=num_workers,
             pin_memory=True,
         )
+        
+        self.contrasts = list(contrasts)
 
         print()
         print("===== THETA DATASET =====")
@@ -136,7 +139,12 @@ class ThetaModel:
             self.out_dir
             / f"training_models_{self.timestr}"
         )
-
+        self.result_dir = (
+            self.out_dir
+            / f"training_results_{self.timestr}"
+        )
+        
+        mkdir_p(self.result_dir)
         mkdir_p(self.model_dir)
 
         self.writer = SummaryWriter(
@@ -463,6 +471,7 @@ class ThetaModel:
         self,
         num_epochs,
         save_every=100,
+        plot_every=1,
     ):
 
         for epoch in range(
@@ -521,6 +530,15 @@ class ThetaModel:
                 self.save_checkpoint(
                     epoch
                 )
+            if (
+                epoch == 1
+                or epoch % plot_every == 0
+                or epoch == num_epochs
+            ):
+            
+                self.save_theta_space(
+                    epoch
+                )
 
 
     # ======================================================
@@ -546,4 +564,191 @@ class ThetaModel:
             checkpoint,
             self.model_dir
             / f"theta_model_{epoch}.pt",
+        )
+    def save_theta_space(
+        self,
+        epoch,
+    ):
+        """
+        Save the 2D theta mu space for every available
+        training and validation image.
+    
+        Color = MRI contrast
+        Marker = train vs validation
+        """
+    
+        if self.theta_dim != 2:
+            print(
+                "Skipping theta-space plot because "
+                f"theta_dim={self.theta_dim}, not 2."
+            )
+            return
+    
+        self.theta_encoder.eval()
+    
+        all_mu = []
+        all_contrast_ids = []
+        all_splits = []
+    
+        loaders = [
+            ("train", self.train_loader),
+            ("valid", self.valid_loader),
+        ]
+    
+        with torch.no_grad():
+    
+            for split_name, loader in loaders:
+    
+                for image_dicts in loader:
+    
+                    (
+                        images,
+                        contrast_ids,
+                    ) = self.collect_images(
+                        image_dicts
+                    )
+    
+                    if images is None:
+                        continue
+    
+                    mu, logvar = self.theta_encoder(
+                        images
+                    )
+    
+                    all_mu.append(
+                        mu.cpu()
+                    )
+    
+                    all_contrast_ids.append(
+                        contrast_ids.cpu()
+                    )
+    
+                    all_splits.extend(
+                        [split_name] * mu.shape[0]
+                    )
+    
+        # --------------------------------------------------
+        # Combine everything
+        # --------------------------------------------------
+    
+        all_mu = torch.cat(
+            all_mu,
+            dim=0,
+        ).numpy()
+    
+        all_contrast_ids = torch.cat(
+            all_contrast_ids,
+            dim=0,
+        ).numpy()
+    
+        # --------------------------------------------------
+        # Plot
+        # --------------------------------------------------
+    
+        fig, ax = plt.subplots(
+            figsize=(9, 8)
+        )
+    
+        colors = plt.cm.tab10.colors
+    
+        markers = {
+            "train": "o",
+            "valid": "^",
+        }
+    
+        for contrast_id, contrast_name in enumerate(
+            self.contrasts
+        ):
+    
+            for split_name in [
+                "train",
+                "valid",
+            ]:
+    
+                mask = (
+                    (all_contrast_ids == contrast_id)
+                    &
+                    (
+                        torch.tensor(
+                            [
+                                s == split_name
+                                for s in all_splits
+                            ]
+                        ).numpy()
+                    )
+                )
+    
+                if mask.sum() == 0:
+                    continue
+    
+                ax.scatter(
+                    all_mu[mask, 0],
+                    all_mu[mask, 1],
+                    color=colors[
+                        contrast_id
+                        % len(colors)
+                    ],
+                    marker=markers[split_name],
+                    alpha=0.65,
+                    s=35,
+                    label=(
+                        f"{contrast_name} "
+                        f"({split_name})"
+                    ),
+                )
+    
+        ax.set_xlabel(
+            r"$\theta_1$"
+        )
+    
+        ax.set_ylabel(
+            r"$\theta_2$"
+        )
+    
+        ax.set_title(
+            f"Theta Space - Epoch {epoch}"
+        )
+    
+        ax.axhline(
+            0,
+            linewidth=0.5,
+            alpha=0.3,
+        )
+    
+        ax.axvline(
+            0,
+            linewidth=0.5,
+            alpha=0.3,
+        )
+    
+        ax.legend(
+            bbox_to_anchor=(1.05, 1),
+            loc="upper left",
+        )
+    
+        ax.grid(
+            alpha=0.2
+        )
+    
+        fig.tight_layout()
+    
+        # --------------------------------------------------
+        # Save
+        # --------------------------------------------------
+    
+        plot_path = (
+            self.result_dir
+            / f"theta_space_epoch_{epoch:05d}.png"
+        )
+    
+        fig.savefig(
+            plot_path,
+            dpi=200,
+            bbox_inches="tight",
+        )
+    
+        plt.close(fig)
+    
+        print(
+            f"Saved theta space: {plot_path}"
         )
