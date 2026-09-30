@@ -52,6 +52,12 @@ def main(args=None):
             "every N epochs."
         ),
     )
+    
+    parser.add_argument(
+        "--lambda-beta",
+        type=float,
+        default=0.1,
+    )
 
 
     # ======================================================
@@ -218,6 +224,7 @@ def main(args=None):
         gpu_id=args.gpu_id,
         temperature=args.temperature,
         patch_size=args.patch_size,
+        lambda_beta=args.lambda_beta,
     )
 
 
