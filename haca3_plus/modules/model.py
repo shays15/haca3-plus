@@ -113,6 +113,11 @@ class HACA3:
                 checkpoint_beta["beta_encoder"],
                 strict=True,
             )
+
+            self.decoder.load_state_dict(
+                checkpoint_beta["decoder"],
+                strict=True,
+            )
         
             print(
                 f"Loaded pretrained beta encoder: "
