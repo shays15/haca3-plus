@@ -24,6 +24,8 @@ from .network import (
     AttentionModule3d,
 )
 
+from beta_model import calculate_beta
+
 class HACA3:
     def __init__(
         self,
@@ -296,14 +298,14 @@ class HACA3:
             thetas = torch.randn(mus.size()).to(self.device) * torch.sqrt(torch.exp(logvars)) + mus
         return thetas, mus, logvars
 
-    def calculate_beta(self, images):
-        logits, betas = [], []
-        for image in images:
-            logit = self.beta_encoder(image)
-            beta = self.channel_aggregation(reparameterize_logit(logit))
-            logits.append(logit)
-            betas.append(beta)
-        return logits, betas
+    # def calculate_beta(self, images):
+    #     logits, betas = [], []
+    #     for image in images:
+    #         logit = self.beta_encoder(image)
+    #         beta = self.channel_aggregation(reparameterize_logit(logit))
+    #         logits.append(logit)
+    #         betas.append(beta)
+    #     return logits, betas
 
     # def calculate_eta(self, images):
     #     if isinstance(images, list):
@@ -1189,12 +1191,11 @@ class HACA3:
         # BETA
         # ==================================================
 
-        logits, betas = (
+        logits, probabilities, betas = (
             self.calculate_beta(
                 source_images
             )
         )
-
 
         # ==================================================
         # SOURCE THETA / ETA
@@ -1388,7 +1389,7 @@ class HACA3:
         
             # with torch.cuda.amp.autocast():
         
-            inter_logits, inter_betas = self.calculate_beta(
+            inter_logits, inter_probabilities, inter_betas = self.calculate_beta(
                 source_images
             )
     
@@ -1887,7 +1888,7 @@ class HACA3:
             # β anatomy representation
             # ------------------------------------------------
 
-            logits, betas = self.calculate_beta(
+            logits, probabilities, betas = self.calculate_beta(
                 source_images
             )
 
