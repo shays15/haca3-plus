@@ -1366,9 +1366,9 @@ class HACA3:
                 ),
             )
 
-            print("Number of betas:", len(betas))
-            for i, beta in enumerate(betas):
-                print(f"beta {i} shape: {beta.shape}")
+            # print("Number of betas:", len(betas))
+            # for i, beta in enumerate(betas):
+                # print(f"beta {i} shape: {beta.shape}")
     
             save_image_3d(
                 source_images
