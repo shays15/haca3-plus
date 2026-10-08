@@ -298,8 +298,33 @@ class HACA3:
             thetas = torch.randn(mus.size()).to(self.device) * torch.sqrt(torch.exp(logvars)) + mus
         return thetas, mus, logvars
 
-    def calculate_beta(self, image):
-        return BetaModel.calculate_beta(self, image)
+    def calculate_beta(self, images):
+    
+        if isinstance(images, (list, tuple)):
+    
+            logits = []
+            probabilities = []
+            betas = []
+    
+            for image in images:
+    
+                logit, probability, beta = BetaModel.calculate_beta(
+                    self,
+                    image,
+                )
+    
+                logits.append(logit)
+                probabilities.append(probability)
+                betas.append(beta)
+    
+            return logits, probabilities, betas
+    
+        else:
+    
+            return BetaModel.calculate_beta(
+                self,
+                images,
+            )
     # def calculate_beta(self, images):
     #     logits, betas = [], []
     #     for image in images:
