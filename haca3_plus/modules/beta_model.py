@@ -246,6 +246,12 @@ class BetaModel:
     
         return logits, probabilities, beta
 
+    def decode_beta(self, probabilities):
+        """
+        Reconstruct T1PRE directly from the beta probability volume.
+        """
+        return self.decoder(probabilities)
+
     # ======================================================
     # LOSSES
     # ======================================================
