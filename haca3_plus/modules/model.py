@@ -1723,8 +1723,7 @@ class HACA3:
                 desc = (
                     f"Train {epoch}/{epochs} | "
                     f"rec {loss['rec_loss']:.3f} | "
-                    f"kld {loss['kld_loss']:.3f} | "
-                    f"beta {loss['beta_loss']:.3f}"
+                    f"per {loss['per_loss']:.3f} | "
                 )
                 
                 # if loss.get("cycle_loss") is not None:
