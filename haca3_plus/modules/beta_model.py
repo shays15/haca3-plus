@@ -206,53 +206,45 @@ class BetaModel:
     # ======================================================
 
     def calculate_beta(self, image):
-        """
-        Parameters
-        ----------
-        image : torch.Tensor
-            [B, 1, D, H, W]
+    """
+    Returns
+    -------
+    logits:
+        [B, beta_dim, D, H, W]
 
-        Returns
-        -------
-        logits : torch.Tensor
-            [B, beta_dim, D, H, W]
+    probabilities:
+        [B, beta_dim, D, H, W]
 
-        probabilities : torch.Tensor
-            Deterministic softmax beta representation used for training.
+    beta:
+        [B, 1, D, H, W]
+        Probability-weighted scalar beta representation.
+    """
 
-        beta : torch.Tensor
-            Deterministic scalar visualization of beta:
-            argmax channel / beta_dim.
-        """
         logits = self.beta_encoder(image)
-
+    
         probabilities = F.softmax(
             logits,
             dim=1,
         )
-
-        # Use deterministic argmax for metrics/visualization.
-        # This avoids validation images changing because of Gumbel sampling.
-        labels = torch.argmax(
-            probabilities,
+    
+        # Channel values: [0, 1, 2, 3, 4]
+        channel_values = torch.arange(
+            self.beta_dim,
+            device=probabilities.device,
+            dtype=probabilities.dtype,
+        ).view(
+            1, self.beta_dim, 1, 1, 1
+        )
+    
+        # Weighted aggregation across beta channels
+        beta = (
+            probabilities * channel_values
+        ).sum(
             dim=1,
             keepdim=True,
-        )
-
-        beta = (
-            labels.to(probabilities.dtype)
-            / self.beta_dim
-        )
-
+        ) / self.beta_dim
+    
         return logits, probabilities, beta
-
-
-    def decode_beta(self, probabilities):
-        """
-        Reconstruct T1PRE directly from the beta probability volume.
-        """
-        return self.decoder(probabilities)
-
 
     # ======================================================
     # LOSSES
