@@ -32,7 +32,8 @@ class HACA3:
         eta_dim,
         pretrained_beta_encoder=None,
         pretrained_theta_encoder=None,
-        pretrained_eta_encoder=None,        
+        pretrained_eta_encoder=None,
+        pretrained_haca3=None,
         gpu_id=0,
     ):
         self.beta_dim = beta_dim
