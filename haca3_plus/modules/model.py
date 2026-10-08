@@ -758,11 +758,6 @@ class HACA3:
         rec_image,
         ref_image,
         mask,
-        mu,
-        logvar,
-        betas,
-        source_images,
-        available_contrast_id,
         is_train=True,
     ):
         """
@@ -771,8 +766,6 @@ class HACA3:
     
         Current losses:
             reconstruction L1
-            KLD
-            beta PatchNCE
             2D VGG perceptual loss on 3 slices
             
             Cycle consistency is handled separately 
