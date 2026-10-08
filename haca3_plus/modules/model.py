@@ -24,7 +24,7 @@ from .network import (
     AttentionModule3d,
 )
 
-from beta_model import calculate_beta
+from .beta_model import calculate_beta
 
 class HACA3:
     def __init__(
