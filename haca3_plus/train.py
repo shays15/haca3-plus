@@ -90,6 +90,18 @@ def main(args=None):
         default=None,
     )
 
+    parser.add_argument(
+        "--pretrained-theta-encoder",
+        type=str,
+        default=None,
+    )
+
+    parser.add_argument(
+        "--pretrained-beta-encoder",
+        type=str,
+        default=None,
+    )
+
 
     # ======================================================
     # TRAINING
@@ -188,8 +200,10 @@ def main(args=None):
         beta_dim=args.beta_dim,
         theta_dim=args.theta_dim,
         eta_dim=args.eta_dim,
-        pretrained_haca3=args.pretrained_haca3,
+        pretrained_beta_encoder=args.pretrained_beta,
+        pretrained_theta_encoder=args.pretrained_theta,
         pretrained_eta_encoder=args.pretrained_eta_encoder,
+        pretrained_haca3=args.pretrained_haca3,
         gpu_id=args.gpu_id,
     )
 
