@@ -206,19 +206,19 @@ class BetaModel:
     # ======================================================
 
     def calculate_beta(self, image):
-    """
-    Returns
-    -------
-    logits:
-        [B, beta_dim, D, H, W]
-
-    probabilities:
-        [B, beta_dim, D, H, W]
-
-    beta:
-        [B, 1, D, H, W]
-        Probability-weighted scalar beta representation.
-    """
+        """
+        Returns
+        -------
+        logits:
+            [B, beta_dim, D, H, W]
+    
+        probabilities:
+            [B, beta_dim, D, H, W]
+    
+        beta:
+            [B, 1, D, H, W]
+            Probability-weighted scalar beta representation.
+        """
 
         logits = self.beta_encoder(image)
     
