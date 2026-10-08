@@ -84,10 +84,10 @@ class HACA3:
             final_act='relu'
         )
         
-        self.patchifier = Patchifier3d(
-            in_ch=1,
-            out_ch=128
-        )
+        # self.patchifier = Patchifier3d(
+        #     in_ch=1,
+        #     out_ch=128
+        # )
         
 
         if pretrained_eta_encoder is not None:
@@ -154,7 +154,7 @@ class HACA3:
         # self.eta_encoder.to(self.device)
         self.decoder.to(self.device)
         self.attention_module.to(self.device)
-        self.patchifier.to(self.device)
+        # self.patchifier.to(self.device)
         
         self.beta_encoder.eval()
         self.theta_encoder.eval()
@@ -580,176 +580,176 @@ class HACA3:
             beta_fusion
         )
 
-    def calculate_features_for_contrastive_loss(
-        self,
-        betas,
-        source_images,
-        available_contrast_id,
-    ):
-        """
-        Construct features for contrastive regularization of beta.
+    # def calculate_features_for_contrastive_loss(
+    #     self,
+    #     betas,
+    #     source_images,
+    #     available_contrast_id,
+    # ):
+    #     """
+    #     Construct features for contrastive regularization of beta.
     
-        For each subject, randomly select two available contrasts A and B.
+    #     For each subject, randomly select two available contrasts A and B.
     
-        We want beta to satisfy:
+    #     We want beta to satisfy:
 
-        1. Cross-contrast consistency:
-           beta_A(i) ~ beta_B(i)
+    #     1. Cross-contrast consistency:
+    #        beta_A(i) ~ beta_B(i)
 
-        2. Spatial discriminability:
-           beta_A(i) != beta_A(j), i != j
-           beta_A(i) != beta_B(j), i != j
+    #     2. Spatial discriminability:
+    #        beta_A(i) != beta_A(j), i != j
+    #        beta_A(i) != beta_B(j), i != j
 
-        3. Source-image separation:
-           beta_A(i) should be distinguishable from features
-           extracted directly from source images A and B.
+    #     3. Source-image separation:
+    #        beta_A(i) should be distinguishable from features
+    #        extracted directly from source images A and B.
 
-        Returns
-        -------
-        feature_sets : list of dict
-            One dictionary per usable subject containing:
+    #     Returns
+    #     -------
+    #     feature_sets : list of dict
+    #         One dictionary per usable subject containing:
     
-                query:
-                    beta_A features [1, C, N]
+    #             query:
+    #                 beta_A features [1, C, N]
     
-                positive:
-                    beta_B features [1, C, N]
+    #             positive:
+    #                 beta_B features [1, C, N]
     
-                source_query:
-                    source image A features [1, C, N]
+    #             source_query:
+    #                 source image A features [1, C, N]
     
-                source_positive:
-                    source image B features [1, C, N]
-        """
+    #             source_positive:
+    #                 source image B features [1, C, N]
+    #     """
 
-        # betas/source_images are lists over contrasts.
-        #
-        # Each beta:
-        #   [B, 1, D, H, W]
-        #
-        # After stacking:
-        #   [B, N_contrasts, 1, D, H, W]
+    #     # betas/source_images are lists over contrasts.
+    #     #
+    #     # Each beta:
+    #     #   [B, 1, D, H, W]
+    #     #
+    #     # After stacking:
+    #     #   [B, N_contrasts, 1, D, H, W]
     
-        betas_stack = torch.stack(
-            betas,
-            dim=1,
-        )
+    #     betas_stack = torch.stack(
+    #         betas,
+    #         dim=1,
+    #     )
     
-        source_images_stack = torch.stack(
-            source_images,
-            dim=1,
-        )
+    #     source_images_stack = torch.stack(
+    #         source_images,
+    #         dim=1,
+    #     )
 
-        B = betas_stack.shape[0]
+    #     B = betas_stack.shape[0]
     
-        feature_sets = []
+    #     feature_sets = []
     
-        for b in range(B):
+    #     for b in range(B):
     
-            # -------------------------------------------------
-            # Find available contrasts for this subject
-            # -------------------------------------------------
+    #         # -------------------------------------------------
+    #         # Find available contrasts for this subject
+    #         # -------------------------------------------------
     
-            avail = available_contrast_id[b]
+    #         avail = available_contrast_id[b]
     
-            available_ids = torch.where(
-                avail > 0
-            )[0].tolist()
+    #         available_ids = torch.where(
+    #             avail > 0
+    #         )[0].tolist()
 
-            # Need at least two contrasts
-            if len(available_ids) < 2:
-                continue
+    #         # Need at least two contrasts
+    #         if len(available_ids) < 2:
+    #             continue
     
-            # -------------------------------------------------
-            # Randomly select two DIFFERENT contrasts
-            # -------------------------------------------------
+    #         # -------------------------------------------------
+    #         # Randomly select two DIFFERENT contrasts
+    #         # -------------------------------------------------
     
-            contrast_a, contrast_b = random.sample(
-                available_ids,
-                2,
-            )
+    #         contrast_a, contrast_b = random.sample(
+    #             available_ids,
+    #             2,
+    #         )
 
-            # -------------------------------------------------
-            # Get beta representations
-            # -------------------------------------------------
+    #         # -------------------------------------------------
+    #         # Get beta representations
+    #         # -------------------------------------------------
     
-            beta_a = betas_stack[
-                b:b+1,
-                contrast_a,
-            ]
+    #         beta_a = betas_stack[
+    #             b:b+1,
+    #             contrast_a,
+    #         ]
     
-            beta_b = betas_stack[
-                b:b+1,
-                contrast_b,
-            ]
+    #         beta_b = betas_stack[
+    #             b:b+1,
+    #             contrast_b,
+    #         ]
 
-            # -------------------------------------------------
-            # Get corresponding source images
-            # -------------------------------------------------
+    #         # -------------------------------------------------
+    #         # Get corresponding source images
+    #         # -------------------------------------------------
     
-            source_a = source_images_stack[
-                b:b+1,
-                contrast_a,
-            ]
+    #         source_a = source_images_stack[
+    #             b:b+1,
+    #             contrast_a,
+    #         ]
     
-            source_b = source_images_stack[
-                b:b+1,
-                contrast_b,
-            ]
+    #         source_b = source_images_stack[
+    #             b:b+1,
+    #             contrast_b,
+    #         ]
 
-            # -------------------------------------------------
-            # Patchify everything
-            #
-            # Input:
-            #   [1, 1, 192, 224, 192]
-            #
-            # Patchifier output:
-            #   [1, 128, 6, 7, 6]
-            #
-            # Flatten:
-            #   [1, 128, 252]
-            # -------------------------------------------------
+    #         # -------------------------------------------------
+    #         # Patchify everything
+    #         #
+    #         # Input:
+    #         #   [1, 1, 192, 224, 192]
+    #         #
+    #         # Patchifier output:
+    #         #   [1, 128, 6, 7, 6]
+    #         #
+    #         # Flatten:
+    #         #   [1, 128, 252]
+    #         # -------------------------------------------------
     
-            query_feature = self.patchifier(
-                beta_a
-            ).flatten(start_dim=2)
+    #         query_feature = self.patchifier(
+    #             beta_a
+    #         ).flatten(start_dim=2)
     
-            positive_feature = self.patchifier(
-                beta_b
-            ).flatten(start_dim=2)
+    #         positive_feature = self.patchifier(
+    #             beta_b
+    #         ).flatten(start_dim=2)
 
-            source_query_feature = self.patchifier(
-                source_a
-            ).flatten(start_dim=2)
+    #         source_query_feature = self.patchifier(
+    #             source_a
+    #         ).flatten(start_dim=2)
     
-            source_positive_feature = self.patchifier(
-                source_b
-            ).flatten(start_dim=2)
+    #         source_positive_feature = self.patchifier(
+    #             source_b
+    #         ).flatten(start_dim=2)
     
-            # All should describe the same spatial patch grid
-            assert (
-                query_feature.shape
-                == positive_feature.shape
-                == source_query_feature.shape
-                == source_positive_feature.shape
-            )
+    #         # All should describe the same spatial patch grid
+    #         assert (
+    #             query_feature.shape
+    #             == positive_feature.shape
+    #             == source_query_feature.shape
+    #             == source_positive_feature.shape
+    #         )
 
-            feature_sets.append({
-                "query": query_feature,
-                "positive": positive_feature,
+    #         feature_sets.append({
+    #             "query": query_feature,
+    #             "positive": positive_feature,
             
-                "source_query": source_query_feature,
-                "source_positive": source_positive_feature,
+    #             "source_query": source_query_feature,
+    #             "source_positive": source_positive_feature,
             
-                # Actual beta volumes for direct consistency
-                "beta_query": beta_a,
-                "beta_positive": beta_b,
+    #             # Actual beta volumes for direct consistency
+    #             "beta_query": beta_a,
+    #             "beta_positive": beta_b,
             
-                "contrast_a": contrast_a,
-                "contrast_b": contrast_b,
-            })
+    #             "contrast_a": contrast_a,
+    #             "contrast_b": contrast_b,
+    #         })
     
-        return feature_sets
+    #     return feature_sets
      
 
     def calculate_loss(
@@ -823,167 +823,14 @@ class HACA3:
         
         perceptual_loss = (
             perceptual_loss / len(slice_ids)
-        )
-    
-    
-        # ======================================================
-        # 3. KLD LOSS
-        # ======================================================
-    
-        # kld_loss = torch.tensor(0.0, device=self.device)
-        kld_loss = self.kld_loss(
-            mu,
-            logvar,
-        ).mean()
-
-        # ======================================================
-        # 4. BETA REGULARIZATION
-        # ======================================================
-
-        # ------------------------------------------------------
-        # 4A. DIRECT CROSS-CONTRAST BETA CONSISTENCY
-        #
-        # Use ALL available contrast pairs.
-        # ------------------------------------------------------
-        
-        betas_stack = torch.stack(
-            betas,
-            dim=1,
-        )
-        
-        B = betas_stack.shape[0]
-        
-        beta_consistency_losses = []
-        
-        for b in range(B):
-        
-            available_ids = torch.where(
-                available_contrast_id[b] > 0
-            )[0].tolist()
-        
-            if len(available_ids) < 2:
-                continue
-        
-            for i in range(len(available_ids)):
-        
-                for j in range(i + 1, len(available_ids)):
-        
-                    contrast_a = available_ids[i]
-                    contrast_b = available_ids[j]
-        
-                    beta_a = betas_stack[
-                        b:b+1,
-                        contrast_a,
-                    ]
-        
-                    beta_b = betas_stack[
-                        b:b+1,
-                        contrast_b,
-                    ]
-        
-                    beta_consistency_losses.append(
-                        F.l1_loss(
-                            beta_a,
-                            beta_b,
-                        )
-                    )
-        
-        
-        if len(beta_consistency_losses) > 0:
-        
-            beta_consistency_loss = torch.stack(
-                beta_consistency_losses
-            ).mean()
-        
-        else:
-        
-            beta_consistency_loss = torch.tensor(
-                0.0,
-                device=betas[0].device,
-            )
-        
-        
-        # ------------------------------------------------------
-        # 4B. PATCH-LEVEL REGULARIZATION
-        #
-        # Sample one pair per subject because this is much more
-        # computationally expensive than direct L1 consistency.
-        # ------------------------------------------------------
-        
-        feature_sets = (
-            self.calculate_features_for_contrastive_loss(
-                betas,
-                source_images,
-                available_contrast_id,
-            )
-        )
-        
-        beta_spatial_losses = []
-        beta_source_losses = []
-        
-        for features in feature_sets:
-        
-            losses = self.contrastive_loss(
-                features["query"],
-                features["positive"],
-                features["source_query"],
-                features["source_positive"],
-            )
-        
-            beta_spatial_losses.append(
-                losses["spatial"]
-            )
-        
-            beta_source_losses.append(
-                losses["source"]
-            )
-        
-        
-        if len(beta_spatial_losses) > 0:
-        
-            beta_spatial_loss = torch.stack(
-                beta_spatial_losses
-            ).mean()
-        
-            beta_source_loss = torch.stack(
-                beta_source_losses
-            ).mean()
-        
-        else:
-        
-            beta_spatial_loss = torch.tensor(
-                0.0,
-                device=betas[0].device,
-            )
-        
-            beta_source_loss = torch.tensor(
-                0.0,
-                device=betas[0].device,
-            )
-        
-        
-        # ------------------------------------------------------
-        # 4C. COMBINE BETA OBJECTIVES
-        # ------------------------------------------------------
-        
-        # beta_loss = (
-        #     1.0 * beta_consistency_loss
-        #     + 0.25 * beta_spatial_loss
-        #     + 0.10 * beta_source_loss
-        # )
-        beta_loss = (
-            1.0 * beta_consistency_loss
-        )
-    
+        ) 
     
         # ======================================================
-        # 5. TOTAL LOSS
+        # 3. TOTAL LOSS
         # ======================================================
     
         lambda_rec = 10.0
         lambda_per = 1
-        lambda_kld = 1e-2
-        lambda_beta = 0.5
 
         weighted_rec = (
             lambda_rec * rec_loss
@@ -993,19 +840,10 @@ class HACA3:
             lambda_per * perceptual_loss
         )
         
-        weighted_kld = (
-            lambda_kld * kld_loss
-        )
-        
-        weighted_beta = (
-            lambda_beta * beta_loss
-        )
         
         total_loss = (
             weighted_rec
             + weighted_per
-            + weighted_kld
-            + weighted_beta
         )
     
         # ======================================================
@@ -1040,26 +878,9 @@ class HACA3:
         loss = {
             "rec_loss": rec_loss.item(),
             "per_loss": perceptual_loss.item(),
-            "kld_loss": kld_loss.item(),
-        
-            "beta_loss": beta_loss.item(),
-        
-            "beta_consistency_loss": (
-                beta_consistency_loss.item()
-            ),
-        
-            "beta_spatial_loss": (
-                beta_spatial_loss.item()
-            ),
-        
-            "beta_source_loss": (
-                beta_source_loss.item()
-            ),
         
             "weighted_rec": weighted_rec.item(),
             "weighted_per": weighted_per.item(),
-            "weighted_kld": weighted_kld.item(),
-            "weighted_beta": weighted_beta.item(),
         
             "total_loss": total_loss.item(),
         }
@@ -1138,44 +959,10 @@ class HACA3:
             loss['per_loss'],
             curr_iteration
         )
-    
-        self.writer.add_scalar(
-            f'{train_or_valid}/kld loss',
-            loss['kld_loss'],
-            curr_iteration
-        )
 
         self.writer.add_scalar(
             f'{train_or_valid}/total loss',
             loss['total_loss'],
-            curr_iteration
-        )
-    
-        # =====================================================
-        # Beta contrastive losses
-        # =====================================================
-    
-        self.writer.add_scalar(
-            f'{train_or_valid}/beta/total',
-            loss['beta_loss'],
-            curr_iteration
-        )
-
-        self.writer.add_scalar(
-            f'{train_or_valid}/beta/direct consistency',
-            loss['beta_consistency_loss'],
-            curr_iteration
-        )
-    
-        self.writer.add_scalar(
-            f'{train_or_valid}/beta/spatial',
-            loss['beta_spatial_loss'],
-            curr_iteration
-        )
-    
-        self.writer.add_scalar(
-            f'{train_or_valid}/beta/source',
-            loss['beta_source_loss'],
             curr_iteration
         )
 
@@ -1194,18 +981,6 @@ class HACA3:
             self.writer.add_scalar(
                 f'{train_or_valid}/weighted/perceptual',
                 loss['weighted_per'],
-                curr_iteration
-            )
-
-            self.writer.add_scalar(
-                f'{train_or_valid}/weighted/kld',
-                loss['weighted_kld'],
-                curr_iteration
-            )
-    
-            self.writer.add_scalar(
-                f'{train_or_valid}/weighted/beta',
-                loss['weighted_beta'],
                 curr_iteration
             )
 
@@ -1244,7 +1019,6 @@ class HACA3:
              'theta_encoder': self.theta_encoder.state_dict(),
              'decoder': self.decoder.state_dict(),
              'attention_module': self.attention_module.state_dict(),
-             'patchifier': self.patchifier.state_dict(),
              'optimizer': self.optimizer.state_dict(),
              'scheduler': (
                 self.scheduler.state_dict()
@@ -1547,11 +1321,6 @@ class HACA3:
             rec_image,
             target_image,
             mask,
-            mu_target,
-            logvar_target,
-            betas,
-            source_images,
-            available_contrast_id,
             is_train=is_train,
         )
 
@@ -1934,7 +1703,7 @@ class HACA3:
     
             self.decoder.train()
             self.attention_module.train()
-            self.patchifier.train()
+            # self.patchifier.train()
     
     
             train_iterator = tqdm(
