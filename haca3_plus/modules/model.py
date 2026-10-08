@@ -25,7 +25,16 @@ from .network import (
 )
 
 class HACA3:
-    def __init__(self, beta_dim, theta_dim, eta_dim, pretrained_haca3=None, pretrained_eta_encoder=None, gpu_id=0):
+    def __init__(
+        self,
+        beta_dim,
+        theta_dim,
+        eta_dim,
+        pretrained_beta_encoder=None,
+        pretrained_theta_encoder=None,
+        pretrained_eta_encoder=None,        
+        gpu_id=0,
+    ):
         self.beta_dim = beta_dim
         self.theta_dim = theta_dim
         self.eta_dim = eta_dim
@@ -79,24 +88,77 @@ class HACA3:
             in_ch=1,
             out_ch=128
         )
+        
 
         if pretrained_eta_encoder is not None:
             checkpoint_eta_encoder = torch.load(pretrained_eta_encoder, map_location=self.device)
             self.eta_encoder.load_state_dict(checkpoint_eta_encoder['eta_encoder'])
-        if pretrained_haca3 is not None:
-            self.checkpoint = torch.load(pretrained_haca3, map_location=self.device)
-            self.beta_encoder.load_state_dict(self.checkpoint['beta_encoder'])
-            self.theta_encoder.load_state_dict(self.checkpoint['theta_encoder'])
-            #self.eta_encoder.load_state_dict(self.checkpoint['eta_encoder'])
-            self.decoder.load_state_dict(self.checkpoint['decoder'])
-            self.attention_module.load_state_dict(self.checkpoint['attention_module'])
-            self.patchifier.load_state_dict(self.checkpoint['patchifier'])
+
+        # ======================================================
+        # LOAD PRETRAINED BETA ENCODER
+        # ======================================================
+        
+        if pretrained_beta_encoder is not None:
+        
+            checkpoint_beta = torch.load(
+                pretrained_beta_encoder,
+                map_location=self.device,
+                weights_only=False,
+            )
+        
+            self.beta_encoder.load_state_dict(
+                checkpoint_beta["beta_encoder"],
+                strict=True,
+            )
+        
+            print(
+                f"Loaded pretrained beta encoder: "
+                f"{pretrained_beta_encoder}"
+            )
+
+
+        # ======================================================
+        # LOAD PRETRAINED THETA ENCODER
+        # ======================================================
+        
+        if pretrained_theta_encoder is not None:
+        
+            checkpoint_theta = torch.load(
+                pretrained_theta_encoder,
+                map_location=self.device,
+                weights_only=False,
+            )
+        
+            self.theta_encoder.load_state_dict(
+                checkpoint_theta["theta_encoder"],
+                strict=True,
+            )
+        
+            print(
+                f"Loaded pretrained theta encoder: "
+                f"{pretrained_theta_encoder}"
+            )
+
+        # ======================================================
+        # FREEZE PRETRAINED ENCODERS
+        # ======================================================
+        
+        for param in self.beta_encoder.parameters():
+            param.requires_grad = False
+        
+        for param in self.theta_encoder.parameters():
+            param.requires_grad = False
+        
         self.beta_encoder.to(self.device)
         self.theta_encoder.to(self.device)
         # self.eta_encoder.to(self.device)
         self.decoder.to(self.device)
         self.attention_module.to(self.device)
         self.patchifier.to(self.device)
+        
+        self.beta_encoder.eval()
+        self.theta_encoder.eval()
+        
         self.start_epoch = 0
 
     def initialize_training(self, out_dir, lr):
@@ -110,19 +172,19 @@ class HACA3:
         )
 
         # define optimizer and learning rate scheduler
-        self.optimizer = Adam(list(self.beta_encoder.parameters()) +
-                              list(self.theta_encoder.parameters()) +
-                              list(self.decoder.parameters()) +
-                              list(self.attention_module.parameters()) +
-                              list(self.patchifier.parameters()), lr=lr)
+        self.optimizer = Adam(
+            list(self.attention_module.parameters())
+            + list(self.decoder.parameters()),
+            lr=lr,
+        )
         self.scheduler = None
         # self.scheduler = CyclicLR(self.optimizer, base_lr=4e-4, max_lr=7e-4, cycle_momentum=False)
-        if self.checkpoint is not None:
-            self.start_epoch = self.checkpoint['epoch']
-            self.optimizer.load_state_dict(self.checkpoint['optimizer'])
-            # self.scheduler.load_state_dict(self.checkpoint['scheduler'])
-            if 'timestr' in self.checkpoint:
-                self.timestr = self.checkpoint['timestr']
+        # if self.checkpoint is not None:
+        #     self.start_epoch = self.checkpoint['epoch']
+        #     self.optimizer.load_state_dict(self.checkpoint['optimizer'])
+        #     # self.scheduler.load_state_dict(self.checkpoint['scheduler'])
+        #     if 'timestr' in self.checkpoint:
+        #         self.timestr = self.checkpoint['timestr']
         self.start_epoch = self.start_epoch + 1
         # self.scaler = torch.cuda.amp.GradScaler()
 
@@ -1864,8 +1926,8 @@ class HACA3:
             # TRAINING
             # ==================================================
     
-            self.beta_encoder.train()
-            self.theta_encoder.train()
+            self.beta_encoder.eval()
+            self.theta_encoder.eval()
     
             # Eta stays frozen
             # self.eta_encoder.eval()
