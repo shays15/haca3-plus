@@ -741,7 +741,7 @@ class BetaModel:
     def train(
         self,
         num_epochs,
-        save_every=100,
+        save_every=10,
         image_every=10,
     ):
         for epoch in range(
