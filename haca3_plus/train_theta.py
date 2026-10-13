@@ -130,7 +130,16 @@ def main(args=None):
         type=int,
         default=0,
     )
+    
+    # ======================================================
+    # PATCH SIZE
+    # ======================================================
 
+    parser.add_argument(
+        "--patch-size",
+        type=int,
+        default=None,
+    )
 
     args = parser.parse_args(args)
 
@@ -214,6 +223,11 @@ def main(args=None):
         args.gpu_id,
     )
 
+    print(
+        "Patch Size:",
+        args.patch_size,
+    )
+
     print()
 
 
@@ -239,6 +253,7 @@ def main(args=None):
         batch_size=args.batch_size,
         normalization_method=args.normalization_method,
         num_workers=args.num_workers,
+        patch_size=args.patch_size,
     )
 
 
