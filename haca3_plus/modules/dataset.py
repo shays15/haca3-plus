@@ -137,34 +137,27 @@ def get_tensor_from_fpath(
             f"Got:      {image.shape}"
         )
         
-    # start = [
-    #     (image.shape[i] - crop_shape[i]) // 2
-    #     for i in range(3)
-    # ]
+    start = [
+        (image.shape[i] - crop_shape[i]) // 2
+        for i in range(3)
+    ]
     
-    # end = [
-    #     start[i] + crop_shape[i]
-    #     for i in range(3)
-    # ]
+    end = [
+        start[i] + crop_shape[i]
+        for i in range(3)
+    ]
     
-    # image = image[
-    #     start[0]:end[0],
-    #     start[1]:end[1],
-    #     start[2]:end[2],
-    # ]
+    image = image[
+        start[0]:end[0],
+        start[1]:end[1],
+        start[2]:end[2],
+    ]
     
     # image = image[
     #     40:crop_shape[0]+40,
     #     40:crop_shape[1]+40,
     #     40:crop_shape[2]+40,
     # ]
-    
-    image = image[
-        crop_shape[0],
-        crop_shape[1],
-        crop_shape[2],
-    ]
-
 
     # ------------------------------------------------------
     # Normalize
