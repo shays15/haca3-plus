@@ -80,6 +80,7 @@ class ThetaModel:
         batch_size=4,
         normalization_method="01",
         num_workers=0,
+        patch_size=None
     ):
 
         train_dataset = HACA3Dataset(
@@ -87,6 +88,7 @@ class ThetaModel:
             contrasts=contrasts,
             mode="train",
             normalization_method=normalization_method,
+            patch_size=patch_size,
         )
 
         valid_dataset = HACA3Dataset(
@@ -94,6 +96,7 @@ class ThetaModel:
             contrasts=contrasts,
             mode="valid",
             normalization_method=normalization_method,
+            patch_size=patch_size,
         )
 
         self.train_loader = DataLoader(
