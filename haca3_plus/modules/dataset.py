@@ -274,7 +274,91 @@ def background_removal(
 
     return image_dicts
 
+def extract_3d_patch(
+    image_dicts,
+    patch_size,
+    mode="train",
+    min_foreground_fraction=0.1,
+    max_attempts=50,
+):
+    """
+    Extract the same spatial patch from every contrast.
 
+    Each image: [1, D, H, W]
+
+    patch_size:
+        int or tuple of 3 ints
+
+    Uses the common foreground mask to favor patches
+    containing brain tissue.
+    """
+
+    if patch_size is None:
+        return image_dicts
+
+    if isinstance(patch_size, int):
+        patch_size = (patch_size,) * 3
+
+    D, H, W = image_dicts[0]["image"].shape[1:]
+    pd, ph, pw = patch_size
+
+    if pd > D or ph > H or pw > W:
+        raise ValueError(
+            f"Patch {patch_size} exceeds volume {(D, H, W)}"
+        )
+
+    mask = image_dicts[0]["mask"][0]
+
+    def foreground_fraction(d, h, w):
+        return mask[
+            d:d+pd,
+            h:h+ph,
+            w:w+pw,
+        ].float().mean().item()
+
+    if mode == "train":
+        best_start = None
+        best_fraction = -1.0
+
+        for _ in range(max_attempts):
+            d = torch.randint(0, D-pd+1, (1,)).item()
+            h = torch.randint(0, H-ph+1, (1,)).item()
+            w = torch.randint(0, W-pw+1, (1,)).item()
+
+            fraction = foreground_fraction(d, h, w)
+
+            if fraction > best_fraction:
+                best_fraction = fraction
+                best_start = (d, h, w)
+
+            if fraction >= min_foreground_fraction:
+                break
+
+        d, h, w = best_start
+
+    else:
+        # Deterministic center patch for validation
+        d = (D - pd) // 2
+        h = (H - ph) // 2
+        w = (W - pw) // 2
+
+    for image_dict in image_dicts:
+        image_dict["image"] = image_dict["image"][
+            :,
+            d:d+pd,
+            h:h+ph,
+            w:w+pw,
+        ].contiguous()
+
+        image_dict["mask"] = image_dict["mask"][
+            :,
+            d:d+pd,
+            h:h+ph,
+            w:w+pw,
+        ].contiguous()
+
+    return image_dicts
+    
 # ==========================================================
 # DATASET
 # ==========================================================
@@ -287,9 +371,11 @@ class HACA3Dataset(Dataset):
         contrasts=None,
         mode="train",
         normalization_method="01",
+        patch_size=None,
     ):
 
         self.mode = mode
+        self.patch_size = patch_size
 
         self.dataset_dirs = [
             Path(dataset_dir)
@@ -621,5 +707,10 @@ class HACA3Dataset(Dataset):
             )
         )
 
+        image_dicts = extract_3d_patch(
+            image_dicts,
+            patch_size=self.patch_size,
+            mode=self.mode,
+        )
 
         return image_dicts
