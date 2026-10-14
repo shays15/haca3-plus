@@ -274,6 +274,8 @@ def main(args=None):
     theta_model.train(
         num_epochs=args.epochs,
         save_every=args.save_every,
+        plot_every=10,
+        patch_plot_every=25,
     )
 
 
