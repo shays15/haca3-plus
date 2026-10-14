@@ -282,7 +282,7 @@ def extract_3d_patch(
     image_dicts,
     patch_size,
     mode="train",
-    min_foreground_fraction=0.1,
+    min_foreground_fraction=0.5,
     max_attempts=50,
 ):
     """
