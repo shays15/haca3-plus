@@ -336,6 +336,7 @@ class ThetaModel:
         loader,
         epoch,
         is_train=True,
+        patch_plot_every=25,
     ):
 
         if is_train:
@@ -366,7 +367,7 @@ class ThetaModel:
                 ),
             )
 
-            for image_dicts in progress:
+            for batch_idx, image_dicts in enumerate(progress):
 
                 (
                     images,
@@ -393,6 +394,27 @@ class ThetaModel:
                         images
                     )
                 )
+                # --------------------------------------
+                # Save patch/theta visualizations
+                # --------------------------------------
+                
+                if (
+                    patch_plot_every is not None
+                    and patch_plot_every > 0
+                    and (
+                        batch_idx == 0
+                        or (batch_idx + 1) % patch_plot_every == 0
+                    )
+                ):
+                    self.save_patch_theta_visualization(
+                        images=images,
+                        mu=mu,
+                        contrast_ids=contrast_ids,
+                        epoch=epoch,
+                        batch_idx=batch_idx,
+                        is_train=is_train,
+                        max_images=8,
+                    )
 
                 # --------------------------------------
                 # Contrastive
@@ -475,6 +497,7 @@ class ThetaModel:
         num_epochs,
         save_every=100,
         plot_every=1,
+        patch_plot_every=25,
     ):
 
         for epoch in range(
@@ -486,12 +509,14 @@ class ThetaModel:
                 self.train_loader,
                 epoch,
                 is_train=True,
+                patch_plot_every=patch_plot_every,
             )
 
             valid_metrics = self.run_epoch(
                 self.valid_loader,
                 epoch,
                 is_train=False,
+                patch_plot_every=patch_plot_every,
             )
 
             for name, value in train_metrics.items():
@@ -755,3 +780,104 @@ class ThetaModel:
         print(
             f"Saved theta space: {plot_path}"
         )
+
+    def save_patch_theta_visualization(
+        self,
+        images,
+        mu,
+        contrast_ids,
+        epoch,
+        batch_idx,
+        is_train=True,
+        max_images=8,
+    ):
+        """
+        Save center axial slices of 3D patches with their
+        corresponding theta values.
+    
+        images:       [M, 1, D, H, W]
+        mu:           [M, theta_dim]
+        contrast_ids: [M]
+        """
+    
+        split = "train" if is_train else "valid"
+    
+        save_dir = self.result_dir / "patch_theta" / split
+        mkdir_p(save_dir)
+    
+        images = images.detach().cpu()
+        mu = mu.detach().cpu()
+        contrast_ids = contrast_ids.detach().cpu()
+    
+        n_images = min(max_images, images.shape[0])
+    
+        if n_images == 0:
+            return
+    
+        ncols = min(4, n_images)
+        nrows = (n_images + ncols - 1) // ncols
+    
+        fig, axes = plt.subplots(
+            nrows,
+            ncols,
+            figsize=(4 * ncols, 4 * nrows),
+            squeeze=False,
+        )
+    
+        for i in range(nrows * ncols):
+    
+            ax = axes.flat[i]
+    
+            if i >= n_images:
+                ax.axis("off")
+                continue
+    
+            # [D, H, W]
+            volume = images[i, 0]
+    
+            # Center axial slice
+            slice_idx = volume.shape[2] // 2
+    
+            image_slice = volume[:, :, slice_idx].numpy()
+    
+            contrast_id = int(contrast_ids[i])
+            contrast_name = self.contrasts[contrast_id]
+    
+            theta_values = mu[i].numpy()
+    
+            ax.imshow(
+                image_slice.T,
+                cmap="gray",
+                origin="lower",
+            )
+    
+            ax.set_title(
+                f"{contrast_name}\n"
+                f"theta1 = {theta_values[0]:.4f}\n"
+                f"theta2 = {theta_values[1]:.4f}",
+                fontsize=11,
+            )
+    
+            ax.axis("off")
+    
+        fig.suptitle(
+            f"Theta Patches | {split} | "
+            f"Epoch {epoch} | Batch {batch_idx}",
+            fontsize=14,
+        )
+    
+        fig.tight_layout()
+    
+        save_path = (
+            save_dir
+            / f"theta_patches_epoch_{epoch:05d}"
+              f"_batch_{batch_idx:05d}.png"
+        )
+    
+        fig.savefig(
+            save_path,
+            dpi=150,
+            bbox_inches="tight",
+        )
+    
+        plt.close(fig)
