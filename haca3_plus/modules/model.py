@@ -1779,45 +1779,45 @@ class HACA3:
             # VALIDATION
             # ==================================================
     
-            # self.beta_encoder.eval()
-            # self.theta_encoder.eval()
-            # # self.eta_encoder.eval()
-            # self.decoder.eval()
-            # self.attention_module.eval()
-            # # self.patchifier.eval()
+            self.beta_encoder.eval()
+            self.theta_encoder.eval()
+            # self.eta_encoder.eval()
+            self.decoder.eval()
+            self.attention_module.eval()
+            # self.patchifier.eval()
     
     
-            # valid_iterator = tqdm(
-            #     self.valid_loader,
-            #     desc=f"Valid {epoch}/{epochs}",
-            # )
+            valid_iterator = tqdm(
+                self.valid_loader,
+                desc=f"Valid {epoch}/{epochs}",
+            )
     
     
-            # with torch.no_grad():
+            with torch.no_grad():
     
-            #     for (
-            #         batch_id,
-            #         image_dicts,
-            #     ) in enumerate(
-            #         valid_iterator
-            #     ):
+                for (
+                    batch_id,
+                    image_dicts,
+                ) in enumerate(
+                    valid_iterator
+                ):
     
-            #         loss = self.image_to_image_translation(
-            #             batch_id,
-            #             epoch,
-            #             image_dicts,
-            #             train_or_valid="valid",
-            #         )
+                    loss = self.image_to_image_translation(
+                        batch_id,
+                        epoch,
+                        image_dicts,
+                        train_or_valid="valid",
+                    )
     
     
-            #         valid_iterator.set_description(
-            #             (
-            #                 f"Valid {epoch}/{epochs} | "
-            #                 f"rec {loss['rec_loss']:.3f} | "
-            #                 f"kld {loss['kld_loss']:.3f} | "
-            #                 f"beta {loss['beta_loss']:.3f}"
-            #             )
-            #         )
+                    valid_iterator.set_description(
+                        (
+                            f"Valid {epoch}/{epochs} | "
+                            f"rec {loss['rec_loss']:.3f} | "
+                            f"kld {loss['kld_loss']:.3f} | "
+                            f"beta {loss['beta_loss']:.3f}"
+                        )
+                    )
     # def harmonize(
     #     self,
     #     source_images,
@@ -1928,10 +1928,11 @@ class HACA3:
             # ------------------------------------------------
             # θ contrast representation
             # ------------------------------------------------
+            with torch.no_grad():
 
-            thetas_source, _, _ = self.calculate_theta(
-                source_images
-            )
+                thetas_source, _, _ = self.calculate_theta(
+                    source_images
+                )
 
             # ------------------------------------------------
             # η artifact representation
@@ -2048,9 +2049,11 @@ class HACA3:
         
         else:
     
-            target_theta = target_theta.to(
-                device
-            )
+            with torch.no_grad():
+
+                target_theta = target_theta.to(
+                    device
+                )
     
             # target_eta = target_eta.to(
             #     device
