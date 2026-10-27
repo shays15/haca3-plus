@@ -1091,10 +1091,17 @@ class HACA3:
         )
 
         self.writer.add_scalar(
+            f'{train_or_valid}/beta_contrastive_loss',
+            loss['beta_contrastive_loss'],
+            curr_iteration
+        )
+        
+        self.writer.add_scalar(
             f'{train_or_valid}/total loss',
             loss['total_loss'],
             curr_iteration
         )
+        
 
         # =====================================================
         # Weighted loss contributions
@@ -1111,6 +1118,12 @@ class HACA3:
             self.writer.add_scalar(
                 f'{train_or_valid}/weighted/perceptual',
                 loss['weighted_per'],
+                curr_iteration
+            )
+            
+            self.writer.add_scalar(
+                f'{train_or_valid}/weighted/weighted_beta',
+                loss['weighted_beta'],
                 curr_iteration
             )
 
