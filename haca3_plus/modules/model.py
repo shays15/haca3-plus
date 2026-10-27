@@ -1214,11 +1214,11 @@ class HACA3:
             and batch_size > 1
             and torch.unique(site_ids).numel() > 1
         )
-        print(
-            f"Batch size: {batch_size} | "
-            f"Site IDs: {site_ids.tolist()} | "
-            f"Inter-site training: {do_inter_site}"
-        )
+        # print(
+        #     f"Batch size: {batch_size} | "
+        #     f"Site IDs: {site_ids.tolist()} | "
+        #     f"Inter-site training: {do_inter_site}"
+        # )
         # do_inter_site = False
     
         # ======================================================
