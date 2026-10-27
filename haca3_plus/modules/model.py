@@ -1111,7 +1111,7 @@ class HACA3:
             and batch_size > 1
             and torch.unique(site_ids).numel() > 1
         )
-        do_inter_site = False
+        do_inter_site = True
     
         # ======================================================
         # PREPARE SOURCE IMAGES
@@ -1235,7 +1235,7 @@ class HACA3:
         # BETA
         # ==================================================
 
-        logits, probabilities, betas = (
+        logits, betas = (
             self.calculate_beta(
                 source_images
             )
@@ -1403,7 +1403,7 @@ class HACA3:
         cycle_loss = None
         
         if do_inter_site:
-            #print("BEGINNING INTER-SITE CYCLE TRAINING")
+            print("BEGINNING INTER-SITE CYCLE TRAINING")
         
             # --------------------------------------------------
             # Cross-subject permutation
@@ -1433,7 +1433,7 @@ class HACA3:
         
             # with torch.cuda.amp.autocast():
         
-            inter_logits, inter_probabilities, inter_betas = self.calculate_beta(
+            inter_logits, inter_betas = self.calculate_beta(
                 source_images
             )
     
@@ -1932,7 +1932,7 @@ class HACA3:
             # β anatomy representation
             # ------------------------------------------------
 
-            logits, probabilities, betas = self.calculate_beta(
+            logits, betas = self.calculate_beta(
                 source_images
             )
 
