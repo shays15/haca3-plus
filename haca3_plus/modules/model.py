@@ -1214,6 +1214,11 @@ class HACA3:
             and batch_size > 1
             and torch.unique(site_ids).numel() > 1
         )
+        print(
+            f"Batch size: {batch_size} | "
+            f"Site IDs: {site_ids.tolist()} | "
+            f"Inter-site training: {do_inter_site}"
+        )
         # do_inter_site = False
     
         # ======================================================
@@ -1513,7 +1518,7 @@ class HACA3:
         
         cycle_loss = None
         
-        if is_train and do_inter_site:
+        if do_inter_site:
             print("BEGINNING INTER-SITE CYCLE TRAINING")
         
             # --------------------------------------------------
