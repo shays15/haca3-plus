@@ -24,7 +24,7 @@ from .network import (
     AttentionModule3d,
 )
 
-from .beta_model import BetaModel
+# from .beta_model import BetaModel
 
 class HACA3:
     def __init__(
