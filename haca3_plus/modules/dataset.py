@@ -34,16 +34,16 @@ expected_shape = (
     224,
     192,
 )
-crop_shape = (
-    128,
-    128,
-    128,
-)
 # crop_shape = (
-#     192,
-#     224,
-#     192,
+#     128,
+#     128,
+#     128,
 # )
+crop_shape = (
+    192,
+    224,
+    192,
+)
 
 # ==========================================================
 # IMAGE LOADING
@@ -375,7 +375,7 @@ class HACA3Dataset(Dataset):
         contrasts=None,
         mode="train",
         normalization_method="01",
-        patch_size=None,
+        patch_size=(128,128,128),
     ):
 
         self.mode = mode
