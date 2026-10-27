@@ -1519,7 +1519,7 @@ class HACA3:
         cycle_loss = None
         
         if do_inter_site:
-            print("BEGINNING INTER-SITE CYCLE TRAINING")
+            #print("BEGINNING INTER-SITE CYCLE TRAINING")
         
             # --------------------------------------------------
             # Cross-subject permutation
