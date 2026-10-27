@@ -626,6 +626,95 @@ class HACA3:
             logit_fusion,
             beta_fusion
         )
+    
+    def calculate_beta_contrastive_loss(
+        self,
+        logits,
+        available_contrast_id,
+        masks,
+        num_patches=512,
+        temperature=0.1,
+    ):
+        """
+        Cross-contrast InfoNCE on beta logits.
+    
+        logits:
+            list of [B, beta_dim, D, H, W]
+    
+        available_contrast_id:
+            [B, N_contrasts]
+    
+        masks:
+            [B, N_contrasts, D, H, W]
+        """
+    
+        total_loss = logits[0].sum() * 0.0
+        num_pairs = 0
+    
+        B = logits[0].shape[0]
+    
+        for b in range(B):
+    
+            available = torch.where(
+                available_contrast_id[b] > 0
+            )[0].tolist()
+    
+            if len(available) < 2:
+                continue
+    
+            # Randomly select two available contrasts
+            a, c = random.sample(available, 2)
+    
+            # Only compare voxels valid in both contrasts
+            valid_mask = (
+                masks[b, a].bool()
+                & masks[b, c].bool()
+            )
+    
+            valid_indices = torch.nonzero(
+                valid_mask.flatten(),
+                as_tuple=False
+            ).flatten()
+    
+            if valid_indices.numel() < 2:
+                continue
+    
+            n = min(num_patches, valid_indices.numel())
+    
+            selected = valid_indices[
+                torch.randperm(
+                    valid_indices.numel(),
+                    device=valid_indices.device
+                )[:n]
+            ]
+    
+            # [beta_dim, D*H*W] -> [N, beta_dim]
+            feat_a = logits[a][b].flatten(1)[:, selected].T
+            feat_c = logits[c][b].flatten(1)[:, selected].T
+    
+            feat_a = F.normalize(feat_a.float(), dim=1)
+            feat_c = F.normalize(feat_c.float(), dim=1)
+    
+            # Pairwise cosine similarity [N, N]
+            similarity = feat_a @ feat_c.T
+            similarity = similarity / temperature
+    
+            labels = torch.arange(
+                n,
+                device=similarity.device
+            )
+    
+            # Symmetric contrastive loss
+            loss_ac = F.cross_entropy(similarity, labels)
+            loss_ca = F.cross_entropy(similarity.T, labels)
+    
+            total_loss = total_loss + 0.5 * (loss_ac + loss_ca)
+            num_pairs += 1
+    
+        if num_pairs > 0:
+            total_loss = total_loss / num_pairs
+    
+        return total_loss
 
     # def calculate_features_for_contrastive_loss(
     #     self,
@@ -798,23 +887,17 @@ class HACA3:
     
     #     return feature_sets
      
-
     def calculate_loss(
         self,
         rec_image,
         ref_image,
         mask,
+        beta_contrastive_loss=None,
         is_train=True,
     ):
         """
         Calculate the main HACA3+ losses for full-volume 3D
         training and validation.
-    
-        Current losses:
-            reconstruction L1
-            2D VGG perceptual loss on 3 slices
-            
-            Cycle consistency is handled separately 
         """
     
         # ======================================================
@@ -868,22 +951,22 @@ class HACA3:
         # ======================================================
         # 3. TOTAL LOSS
         # ======================================================
-    
         lambda_rec = 10.0
-        lambda_per = 1
-
-        weighted_rec = (
-            lambda_rec * rec_loss
-        )
+        lambda_per = 1.0
+        lambda_beta = 0.1
         
-        weighted_per = (
-            lambda_per * perceptual_loss
-        )
+        weighted_rec = lambda_rec * rec_loss
+        weighted_per = lambda_per * perceptual_loss
         
+        if beta_contrastive_loss is None:
+            beta_contrastive_loss = rec_image.new_zeros(())
+        
+        weighted_beta = lambda_beta * beta_contrastive_loss
         
         total_loss = (
             weighted_rec
             + weighted_per
+            + weighted_beta
         )
     
         # ======================================================
@@ -896,6 +979,13 @@ class HACA3:
             )
 
             total_loss.backward()
+            # grad_norm = sum(
+            #     p.grad.norm().item()
+            #     for p in self.beta_encoder.parameters()
+            #     if p.grad is not None
+            # )
+            
+            # print(f"Beta encoder gradient norm: {grad_norm:.6f}")
 
             self.optimizer.step()
         
@@ -918,10 +1008,10 @@ class HACA3:
         loss = {
             "rec_loss": rec_loss.item(),
             "per_loss": perceptual_loss.item(),
-        
+            "beta_contrastive_loss": beta_contrastive_loss.item(),
             "weighted_rec": weighted_rec.item(),
             "weighted_per": weighted_per.item(),
-        
+            "weighted_beta": weighted_beta.item(),
             "total_loss": total_loss.item(),
         }
     
@@ -1240,6 +1330,13 @@ class HACA3:
                 source_images
             )
         )
+        beta_contrastive_loss = self.calculate_beta_contrastive_loss(
+            logits=logits,
+            available_contrast_id=available_contrast_id,
+            masks=masks,
+            num_patches=256,
+            temperature=0.1,
+        )
 
         # ==================================================
         # SOURCE THETA / ETA
@@ -1360,6 +1457,7 @@ class HACA3:
             rec_image,
             target_image,
             mask,
+            beta_contrastive_loss=beta_contrastive_loss,
             is_train=is_train,
         )
 
