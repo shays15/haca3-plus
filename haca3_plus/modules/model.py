@@ -1111,7 +1111,7 @@ class HACA3:
             and batch_size > 1
             and torch.unique(site_ids).numel() > 1
         )
-        do_inter_site = True
+        do_inter_site = False
     
         # ======================================================
         # PREPARE SOURCE IMAGES
@@ -1402,7 +1402,7 @@ class HACA3:
         
         cycle_loss = None
         
-        if do_inter_site:
+        if is_train and do_inter_site:
             print("BEGINNING INTER-SITE CYCLE TRAINING")
         
             # --------------------------------------------------
