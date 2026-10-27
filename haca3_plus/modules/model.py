@@ -147,12 +147,12 @@ class HACA3:
                 f"{pretrained_theta_encoder}"
             )
 
-        # ======================================================
-        # FREEZE PRETRAINED ENCODERS
-        # ======================================================
+        # ==========================================
+        # TRAIN BETA, FREEZE PRETRAINED THETA
+        # ==========================================
         
         for param in self.beta_encoder.parameters():
-            param.requires_grad = False
+            param.requires_grad = True
         
         for param in self.theta_encoder.parameters():
             param.requires_grad = False
@@ -164,7 +164,7 @@ class HACA3:
         self.attention_module.to(self.device)
         # self.patchifier.to(self.device)
         
-        self.beta_encoder.eval()
+        self.beta_encoder.train()
         self.theta_encoder.eval()
         
         self.start_epoch = 0
@@ -181,7 +181,8 @@ class HACA3:
 
         # define optimizer and learning rate scheduler
         self.optimizer = Adam(
-            list(self.attention_module.parameters())
+            list(self.beta_encoder.parameters())
+            + list(self.attention_module.parameters())
             + list(self.decoder.parameters()),
             lr=lr,
         )
@@ -303,41 +304,41 @@ class HACA3:
             thetas = torch.randn(mus.size()).to(self.device) * torch.sqrt(torch.exp(logvars)) + mus
         return thetas, mus, logvars
 
-    def calculate_beta(self, images):
-    
-        if isinstance(images, (list, tuple)):
-    
-            logits = []
-            probabilities = []
-            betas = []
-    
-            for image in images:
-    
-                logit, probability, beta = BetaModel.calculate_beta(
-                    self,
-                    image,
-                )
-    
-                logits.append(logit)
-                probabilities.append(probability)
-                betas.append(beta)
-    
-            return logits, probabilities, betas
-    
-        else:
-    
-            return BetaModel.calculate_beta(
-                self,
-                images,
-            )
     # def calculate_beta(self, images):
-    #     logits, betas = [], []
-    #     for image in images:
-    #         logit = self.beta_encoder(image)
-    #         beta = self.channel_aggregation(reparameterize_logit(logit))
-    #         logits.append(logit)
-    #         betas.append(beta)
-    #     return logits, betas
+    
+    #     if isinstance(images, (list, tuple)):
+    
+    #         logits = []
+    #         probabilities = []
+    #         betas = []
+    
+    #         for image in images:
+    
+    #             logit, probability, beta = BetaModel.calculate_beta(
+    #                 self,
+    #                 image,
+    #             )
+    
+    #             logits.append(logit)
+    #             probabilities.append(probability)
+    #             betas.append(beta)
+    
+    #         return logits, probabilities, betas
+    
+    #     else:
+    
+    #         return BetaModel.calculate_beta(
+    #             self,
+    #             images,
+    #         )
+    def calculate_beta(self, images):
+        logits, betas = [], []
+        for image in images:
+            logit = self.beta_encoder(image)
+            beta = self.channel_aggregation(reparameterize_logit(logit))
+            logits.append(logit)
+            betas.append(beta)
+        return logits, betas
 
     # def calculate_eta(self, images):
     #     if isinstance(images, list):
@@ -1722,7 +1723,7 @@ class HACA3:
             # TRAINING
             # ==================================================
     
-            self.beta_encoder.eval()
+            self.beta_encoder.train()
             self.theta_encoder.eval()
     
             # Eta stays frozen
@@ -1778,45 +1779,45 @@ class HACA3:
             # VALIDATION
             # ==================================================
     
-            # self.beta_encoder.eval()
-            # self.theta_encoder.eval()
-            # # self.eta_encoder.eval()
-            # self.decoder.eval()
-            # self.attention_module.eval()
+            self.beta_encoder.eval()
+            self.theta_encoder.eval()
+            # self.eta_encoder.eval()
+            self.decoder.eval()
+            self.attention_module.eval()
             # self.patchifier.eval()
     
     
-            # valid_iterator = tqdm(
-            #     self.valid_loader,
-            #     desc=f"Valid {epoch}/{epochs}",
-            # )
+            valid_iterator = tqdm(
+                self.valid_loader,
+                desc=f"Valid {epoch}/{epochs}",
+            )
     
     
-            # with torch.no_grad():
+            with torch.no_grad():
     
-            #     for (
-            #         batch_id,
-            #         image_dicts,
-            #     ) in enumerate(
-            #         valid_iterator
-            #     ):
+                for (
+                    batch_id,
+                    image_dicts,
+                ) in enumerate(
+                    valid_iterator
+                ):
     
-            #         loss = self.image_to_image_translation(
-            #             batch_id,
-            #             epoch,
-            #             image_dicts,
-            #             train_or_valid="valid",
-            #         )
+                    loss = self.image_to_image_translation(
+                        batch_id,
+                        epoch,
+                        image_dicts,
+                        train_or_valid="valid",
+                    )
     
     
-                    # valid_iterator.set_description(
-                    #     (
-                    #         f"Valid {epoch}/{epochs} | "
-                    #         f"rec {loss['rec_loss']:.3f} | "
-                    #         f"kld {loss['kld_loss']:.3f} | "
-                    #         f"beta {loss['beta_loss']:.3f}"
-                    #     )
-                    # )
+                    valid_iterator.set_description(
+                        (
+                            f"Valid {epoch}/{epochs} | "
+                            f"rec {loss['rec_loss']:.3f} | "
+                            f"kld {loss['kld_loss']:.3f} | "
+                            f"beta {loss['beta_loss']:.3f}"
+                        )
+                    )
     # def harmonize(
     #     self,
     #     source_images,
