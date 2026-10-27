@@ -1484,8 +1484,8 @@ class HACA3:
         # SAVE TRAINING EXAMPLES
         # ======================================================
         if (
-            batch_id % 100 == 0
-            and epoch % 2 == 0
+            batch_id % 20 == 0
+            and epoch % 1 == 0
         ):
     
             file_name = os.path.join(
@@ -1690,8 +1690,8 @@ class HACA3:
             )
     
             if (
-                batch_id % 10 == 0
-                and epoch % 10 == 0
+                batch_id % 20 == 0
+                and epoch % 1 == 0
             ):
         
                 file_name = os.path.join(
@@ -1802,8 +1802,8 @@ class HACA3:
         # ======================================================
     
         if (
-            batch_id % 2000 == 0 
-            and epoch % 10 == 0
+            batch_id % 100 == 0 
+            and epoch % 1 == 0
             and is_train
         ):
     
