@@ -23,6 +23,7 @@ from .network import (
     Patchifier3d,
     AttentionModule3d,
 )
+from torch.utils.checkpoint import checkpoint
 
 # from .beta_model import BetaModel
 
@@ -334,7 +335,12 @@ class HACA3:
     def calculate_beta(self, images):
         logits, betas = [], []
         for image in images:
-            logit = self.beta_encoder(image)
+            #logit = self.beta_encoder(image)
+            logit = checkpoint(
+                self.beta_encoder,
+                image,
+                use_reentrant=False,
+            )
             beta = self.channel_aggregation(reparameterize_logit(logit))
             logits.append(logit)
             betas.append(beta)
@@ -605,8 +611,13 @@ class HACA3:
     
         # [B, 1 + theta_dim, D,H,W]
     
-        rec_image = self.decoder(
-            combined_map
+        # rec_image = self.decoder(
+        #     combined_map
+        # )
+        rec_image = checkpoint(
+            self.decoder,
+            combined_map,
+            use_reentrant=False,
         )
     
         return (
