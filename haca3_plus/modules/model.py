@@ -1052,7 +1052,7 @@ class HACA3:
         epoch,
         batch_id,
         train_or_valid='train',
-        cycle_loss=rec_image.new_zeros(())
+        cycle_loss=None
     ):
         if train_or_valid == 'train':
     
