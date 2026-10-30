@@ -1756,16 +1756,6 @@ class HACA3:
                 theta_cyc
                 + 5e-2 * beta_cyc
             )
-
-        # Calculate all losses after the optional inter-site block
-        loss = self.calculate_loss(
-            rec_image=rec_image,
-            ref_image=target_image,
-            mask=target_mask,
-            beta_contrastive_loss=beta_contrastive_loss,
-            cycle_loss=cycle_total,
-            is_train=is_train,
-        )
     
             # --------------------------------------------------
             # Separate optimizer step
@@ -1801,6 +1791,15 @@ class HACA3:
                 "theta_cyc": theta_cyc.item(),
                 "beta_cyc": beta_cyc.item(),
             } 
+        # Calculate all losses after the optional inter-site block
+        loss = self.calculate_loss(
+            rec_image=rec_image,
+            ref_image=target_image,
+            mask=target_mask,
+            beta_contrastive_loss=beta_contrastive_loss,
+            cycle_loss=cycle_total,
+            is_train=is_train,
+        )
     
         # ======================================================
         # TENSORBOARD
