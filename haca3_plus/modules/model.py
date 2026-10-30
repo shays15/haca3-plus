@@ -1144,7 +1144,7 @@ class HACA3:
         # Cycle losses
         # =====================================================
     
-        if cycle_loss is not None:
+        if cycle_loss is not None and cycle_loss.item() != 0:
     
             self.writer.add_scalar(
                 f'{train_or_valid}/cycle/theta',
