@@ -893,7 +893,7 @@ class HACA3:
         ref_image,
         mask,
         beta_contrastive_loss=None,
-        cycle_loss=None,
+        cycle_loss=rec_image.new_zeros(()),
         is_train=True,
     ):
         """
@@ -1050,7 +1050,7 @@ class HACA3:
         epoch,
         batch_id,
         train_or_valid='train',
-        cycle_loss=None
+        cycle_loss=rec_image.new_zeros(())
     ):
         if train_or_valid == 'train':
     
@@ -1525,7 +1525,7 @@ class HACA3:
         # INTER-SITE CYCLE TRAINING
         # ======================================================
         
-        cycle_loss = None
+        cycle_loss = rec_image.new_zeros(())
         cycle_total = 0.0
         
         if do_inter_site:
