@@ -955,6 +955,7 @@ class HACA3:
         lambda_rec = 10.0
         lambda_per = 1.0
         lambda_beta = 0.1
+        lambda_cycle = 0.05
         
         weighted_rec = lambda_rec * rec_loss
         weighted_per = lambda_per * perceptual_loss
@@ -967,12 +968,14 @@ class HACA3:
             cycle_loss = rec_image.new_tensor(cycle_loss)
         
         weighted_beta = lambda_beta * beta_contrastive_loss
+        weighted_cycle = lambda_cycle * cycle_loss
+
         
         total_loss = (
             weighted_rec
             + weighted_per
             + weighted_beta
-            + cycle_loss
+            + weighted_cycle
         )
     
         # ======================================================
@@ -1019,6 +1022,7 @@ class HACA3:
             "weighted_per": weighted_per.item(),
             "weighted_beta": weighted_beta.item(),
             "cycle_loss": cycle_loss.item(),
+            "weighted_cycle": weighted_cycle.item(),
             "total_loss": total_loss.item(),
         }
     
@@ -1145,18 +1149,28 @@ class HACA3:
         # =====================================================
     
         if cycle_loss is not None and cycle_loss.item() != 0:
-    
             self.writer.add_scalar(
-                f'{train_or_valid}/cycle/theta',
-                cycle_loss['theta_cyc'],
+                f'{train_or_valid}/cycle_loss',
+                loss['cycle_loss'],
+                curr_iteration
+            )
+            self.writer.add_scalar(
+                f'{train_or_valid}/weighted_cycle',
+                loss['weighted_cycle'],
                 curr_iteration
             )
     
-            self.writer.add_scalar(
-                f'{train_or_valid}/cycle/beta',
-                cycle_loss['beta_cyc'],
-                curr_iteration
-            )
+            # self.writer.add_scalar(
+            #     f'{train_or_valid}/cycle/theta',
+            #     cycle_loss['theta_cyc'],
+            #     curr_iteration
+            # )
+    
+            # self.writer.add_scalar(
+            #     f'{train_or_valid}/cycle/beta',
+            #     cycle_loss['beta_cyc'],
+            #     curr_iteration
+            # )
 
     def save_model(self, epoch, file_name):
         # state = {'epoch': epoch,
@@ -1530,7 +1544,6 @@ class HACA3:
         # ======================================================
         
         cycle_loss = rec_image.new_zeros(())
-        cycle_total = 0.0
         
         if do_inter_site:
             #print("BEGINNING INTER-SITE CYCLE TRAINING")
@@ -1792,17 +1805,17 @@ class HACA3:
             #     "eta_cyc": eta_cyc.item(),
             #     "beta_cyc": beta_cyc.item(),
             # } 
-            cycle_loss = {
-                "theta_cyc": theta_cyc.item(),
-                "beta_cyc": beta_cyc.item(),
-            } 
+            # cycle_loss = {
+            #     "theta_cyc": theta_cyc.item(),
+            #     "beta_cyc": beta_cyc.item(),
+            # } 
         # Calculate all losses after the optional inter-site block
         loss = self.calculate_loss(
             rec_image=rec_image,
             ref_image=target_image,
             mask=mask,
             beta_contrastive_loss=beta_contrastive_loss,
-            cycle_loss=cycle_total,
+            cycle_loss=cycle_loss,
             is_train=is_train,
         )
     
@@ -1815,7 +1828,6 @@ class HACA3:
             epoch,
             batch_id,
             train_or_valid,
-            cycle_loss=cycle_loss,
         )
     
     
