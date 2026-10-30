@@ -963,6 +963,8 @@ class HACA3:
             beta_contrastive_loss = rec_image.new_zeros(())
         if cycle_loss is None:
             cycle_loss = rec_image.new_zeros(())
+        elif not torch.is_tensor(cycle_loss):
+            cycle_loss = rec_image.new_tensor(cycle_loss)
         
         weighted_beta = lambda_beta * beta_contrastive_loss
         
