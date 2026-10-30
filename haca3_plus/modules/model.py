@@ -1795,7 +1795,7 @@ class HACA3:
         loss = self.calculate_loss(
             rec_image=rec_image,
             ref_image=target_image,
-            mask=target_mask,
+            mask=mask,
             beta_contrastive_loss=beta_contrastive_loss,
             cycle_loss=cycle_total,
             is_train=is_train,
