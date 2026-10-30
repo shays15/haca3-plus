@@ -1526,7 +1526,7 @@ class HACA3:
         # ======================================================
         
         cycle_loss = None
-        cycle_total = None
+        cycle_total = 0.0
         
         if do_inter_site:
             #print("BEGINNING INTER-SITE CYCLE TRAINING")
