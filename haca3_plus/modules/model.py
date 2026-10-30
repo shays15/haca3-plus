@@ -893,7 +893,7 @@ class HACA3:
         ref_image,
         mask,
         beta_contrastive_loss=None,
-        cycle_loss=rec_image.new_zeros(()),
+        cycle_loss=None,
         is_train=True,
     ):
         """
@@ -961,6 +961,8 @@ class HACA3:
         
         if beta_contrastive_loss is None:
             beta_contrastive_loss = rec_image.new_zeros(())
+        if cycle_loss is None:
+            cycle_loss = rec_image.new_zeros(())
         
         weighted_beta = lambda_beta * beta_contrastive_loss
         
