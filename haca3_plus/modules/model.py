@@ -1911,10 +1911,14 @@ class HACA3:
                 #         f" | ηcyc {loss['cycle_loss']['eta_cyc']:.3f}"
                 #         f" | βcyc {loss['cycle_loss']['beta_cyc']:.3f}"
                 #     )
+                # if loss.get("cycle_loss") is not None:
+                #     desc += (
+                #         f" | θcyc {loss['cycle_loss']['theta_cyc']:.3f}"
+                #         f" | βcyc {loss['cycle_loss']['beta_cyc']:.3f}"
+                #     )
                 if loss.get("cycle_loss") is not None:
                     desc += (
-                        f" | θcyc {loss['cycle_loss']['theta_cyc']:.3f}"
-                        f" | βcyc {loss['cycle_loss']['beta_cyc']:.3f}"
+                        f" | θcyc {loss['cycle_loss']:.3f}"
                     )
                 
                 train_iterator.set_description(desc)
