@@ -893,6 +893,7 @@ class HACA3:
         ref_image,
         mask,
         beta_contrastive_loss=None,
+        cycle_loss=None,
         is_train=True,
     ):
         """
@@ -967,6 +968,7 @@ class HACA3:
             weighted_rec
             + weighted_per
             + weighted_beta
+            + cycle_loss
         )
     
         # ======================================================
@@ -1012,6 +1014,7 @@ class HACA3:
             "weighted_rec": weighted_rec.item(),
             "weighted_per": weighted_per.item(),
             "weighted_beta": weighted_beta.item(),
+            "cycle_loss": cycle_loss.item(),
             "total_loss": total_loss.item(),
         }
     
@@ -1019,27 +1022,27 @@ class HACA3:
 
     # def calculate_cycle_consistency_loss(self, theta_rec, theta_ref, eta_rec, eta_ref, beta_rec, beta_ref,
     #                                      is_train=True):
-    def calculate_cycle_consistency_loss(self, theta_rec, theta_ref, beta_rec, beta_ref,
-                                         is_train=True):
-        theta_loss = self.l1_loss(theta_rec, theta_ref).mean()
-        # eta_loss = self.l1_loss(eta_rec, eta_ref).mean()
-        beta_loss = self.l1_loss(beta_rec, beta_ref).mean()
-        # theta_loss = torch.tensor(0.0, device=self.device)
-        # beta_loss = torch.tensor(0.0, device=self.device)
+    # def calculate_cycle_consistency_loss(self, theta_rec, theta_ref, beta_rec, beta_ref,
+    #                                      is_train=True):
+    #     theta_loss = self.l1_loss(theta_rec, theta_ref).mean()
+    #     # eta_loss = self.l1_loss(eta_rec, eta_ref).mean()
+    #     beta_loss = self.l1_loss(beta_rec, beta_ref).mean()
+    #     # theta_loss = torch.tensor(0.0, device=self.device)
+    #     # beta_loss = torch.tensor(0.0, device=self.device)
 
-        # cycle_loss = theta_loss + eta_loss + 5e-2 * beta_loss
-        cycle_loss = theta_loss + 5e-2 * beta_loss
-        if is_train:
-            self.optimizer.zero_grad(set_to_none=True)
-            (5e-2 * cycle_loss).backward()
-            self.optimizer.step()
-            #self.scheduler.step()
-        # loss = {'theta_cyc': theta_loss.item(),
-        #         'eta_cyc': eta_loss.item(),
-        #         'beta_cyc': beta_loss.item()}
-        loss = {'theta_cyc': theta_loss.item(),
-                'beta_cyc': beta_loss.item()}
-        return loss
+    #     # cycle_loss = theta_loss + eta_loss + 5e-2 * beta_loss
+    #     cycle_loss = theta_loss + 5e-2 * beta_loss
+    #     if is_train:
+    #         self.optimizer.zero_grad(set_to_none=True)
+    #         (5e-2 * cycle_loss).backward()
+    #         self.optimizer.step()
+    #         #self.scheduler.step()
+    #     # loss = {'theta_cyc': theta_loss.item(),
+    #     #         'eta_cyc': eta_loss.item(),
+    #     #         'beta_cyc': beta_loss.item()}
+    #     loss = {'theta_cyc': theta_loss.item(),
+    #             'beta_cyc': beta_loss.item()}
+    #     return loss
 
     def write_tensorboard(
         self,
@@ -1093,6 +1096,12 @@ class HACA3:
         self.writer.add_scalar(
             f'{train_or_valid}/beta_contrastive_loss',
             loss['beta_contrastive_loss'],
+            curr_iteration
+        )
+        
+        self.writer.add_scalar(
+            f'{train_or_valid}/cycle_loss',
+            loss['cycle_loss'],
             curr_iteration
         )
         
@@ -1471,13 +1480,13 @@ class HACA3:
         # LOSS
         # ==================================================
 
-        loss = self.calculate_loss(
-            rec_image,
-            target_image,
-            mask,
-            beta_contrastive_loss=beta_contrastive_loss,
-            is_train=is_train,
-        )
+        # loss = self.calculate_loss(
+        #     rec_image,
+        #     target_image,
+        #     mask,
+        #     beta_contrastive_loss=beta_contrastive_loss,
+        #     is_train=is_train,
+        # )
 
 
         # ======================================================
@@ -1747,19 +1756,28 @@ class HACA3:
                 theta_cyc
                 + 5e-2 * beta_cyc
             )
-    
+
+        # Calculate all losses after the optional inter-site block
+        loss = self.calculate_loss(
+            rec_image=rec_image,
+            ref_image=target_image,
+            mask=target_mask,
+            beta_contrastive_loss=beta_contrastive_loss,
+            cycle_loss=cycle_total,
+            is_train=is_train,
+        )
     
             # --------------------------------------------------
             # Separate optimizer step
             # --------------------------------------------------
         
-            self.optimizer.zero_grad(
-                set_to_none=True
-            )
+            # self.optimizer.zero_grad(
+            #     set_to_none=True
+            # )
 
-            cycle_total.backward()
+            # cycle_total.backward()
 
-            self.optimizer.step()
+            # self.optimizer.step()
         
             # self.scaler.scale(
             #     5e-2 * cycle_total
