@@ -953,8 +953,8 @@ class HACA3:
         # 3. TOTAL LOSS
         # ======================================================
         lambda_rec = 10.0
-        lambda_per = 1.0
-        lambda_beta = 0.1
+        lambda_per = 0.5
+        lambda_beta = 0.5
         lambda_cycle = 0.05
         
         weighted_rec = lambda_rec * rec_loss
