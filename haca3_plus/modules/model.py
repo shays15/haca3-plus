@@ -58,7 +58,7 @@ class HACA3:
         self.beta_encoder = UNet3d(
             in_ch=1,
             out_ch=self.beta_dim,
-            base_ch=16,
+            base_ch=32,
             final_act='none'
         )
         
@@ -84,7 +84,7 @@ class HACA3:
         self.decoder = UNet3d(
             in_ch=1 + self.theta_dim,
             out_ch=1,
-            base_ch=16,
+            base_ch=32,
             final_act='relu'
         )
         
