@@ -35,7 +35,7 @@ class UNet3d(nn.Module):
         out_ch,
         conditional_ch=0,
         num_lvs=4,
-        base_ch=16,
+        base_ch=32,
         final_act="noact"
     ):
         super().__init__()
