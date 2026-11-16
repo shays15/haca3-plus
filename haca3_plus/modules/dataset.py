@@ -320,7 +320,7 @@ def extract_3d_patch(
             w:w+pw,
         ].float().mean().item()
 
-    if mode == "train":
+    if mode == "t": #change this for overfitting
         best_start = None
         best_fraction = -1.0
 
