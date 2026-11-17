@@ -138,27 +138,69 @@ class PerceptualLoss(nn.Module):
             y = y.repeat(1, 3, 1, 1)
         return F.l1_loss(self.vgg(x), self.vgg(y))
 
-
 class PatchNCELoss(nn.Module):
     def __init__(self, temperature=0.1):
         super().__init__()
-        self.ce_loss = nn.CrossEntropyLoss(reduction='none')
         self.temperature = temperature
 
-    def forward(self, query_feature, positive_feature, negative_feature):
-        B, C, N = query_feature.shape
-        query_feature = F.normalize(query_feature, dim=1)
-        positive_feature = F.normalize(positive_feature, dim=1)
-        negative_feature = F.normalize(negative_feature, dim=1)
+    def forward(
+        self,
+        query_feature,
+        positive_feature,
+        negative_feature
+    ):
+        """
+        query_feature:    [B, C, N]
+        positive_feature: [B, C, N]
+        negative_feature: [B, C, M]
+        """
 
-        l_positive = (query_feature * positive_feature).sum(dim=1)[:, :, None]
-        l_negative = torch.bmm(query_feature.permute(0, 2, 1), negative_feature)
+        # Normalize embeddings
+        query_feature = F.normalize(
+            query_feature.float(),
+            dim=1
+        )
 
-        logits = torch.cat((l_positive, l_negative), dim=2) / self.temperature
+        positive_feature = F.normalize(
+            positive_feature.float(),
+            dim=1
+        )
 
-        predictions = logits.flatten(0, 1)
-        targets = torch.zeros(B * N, dtype=torch.long).to(query_feature.device)
-        return self.ce_loss(predictions, targets).mean()
+        negative_feature = F.normalize(
+            negative_feature.float(),
+            dim=1
+        )
+
+        # Positive cosine similarity
+        l_positive = (
+            query_feature * positive_feature
+        ).sum(dim=1, keepdim=False).unsqueeze(-1)
+
+        # Negative cosine similarities
+        l_negative = torch.bmm(
+            query_feature.transpose(1, 2),
+            negative_feature
+        )
+
+        # [B, N, 1 + M]
+        logits = torch.cat(
+            [l_positive, l_negative],
+            dim=-1
+        ) / self.temperature
+
+        # Positive is always index 0
+        B, N, _ = logits.shape
+
+        targets = torch.zeros(
+            B * N,
+            dtype=torch.long,
+            device=logits.device
+        )
+
+        return F.cross_entropy(
+            logits.reshape(B * N, -1),
+            targets
+        )
 
 # class PatchNCELoss(nn.Module):
 #     def __init__(
