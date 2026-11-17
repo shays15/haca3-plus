@@ -203,6 +203,7 @@ def main(args=None):
         pretrained_beta_encoder=None,
         pretrained_theta_encoder=args.pretrained_theta_encoder,
         pretrained_eta_encoder=args.pretrained_eta_encoder,
+        pretrained_beta_encoder=args.pretrained_beta_encoder,
         pretrained_haca3=args.pretrained_haca3,
         gpu_id=args.gpu_id,
     )
