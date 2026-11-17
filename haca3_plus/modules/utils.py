@@ -139,223 +139,226 @@ class PerceptualLoss(nn.Module):
         return F.l1_loss(self.vgg(x), self.vgg(y))
 
 
-# class PatchNCELoss(nn.Module):
-#     def __init__(self, temperature=0.1):
-#         super().__init__()
-#         self.ce_loss = nn.CrossEntropyLoss(reduction='none')
-#         self.temperature = temperature
-
-#     def forward(self, query_feature, positive_feature, negative_feature):
-#         B, C, N = query_feature.shape
-
-#         l_positive = (query_feature * positive_feature).sum(dim=1)[:, :, None]
-#         l_negative = torch.bmm(query_feature.permute(0, 2, 1), negative_feature)
-
-#         logits = torch.cat((l_positive, l_negative), dim=2) / self.temperature
-
-#         predictions = logits.flatten(0, 1)
-#         targets = torch.zeros(B * N, dtype=torch.long).to(query_feature.device)
-#         return self.ce_loss(predictions, targets).mean()
-
 class PatchNCELoss(nn.Module):
-    def __init__(
-        self,
-        temperature=0.1
-    ):
+    def __init__(self, temperature=0.1):
         super().__init__()
-
+        self.ce_loss = nn.CrossEntropyLoss(reduction='none')
         self.temperature = temperature
 
-    def forward(
-        self,
-        query_feature,
-        positive_feature,
-        source_query_feature,
-        source_positive_feature,
-    ):
-        """
-        Beta regularization.
-
-        Main objective:
-            Directly force beta maps from the same subject but
-            different MRI contrasts to be similar.
-
-        Additional PatchNCE constraints:
-            1. Spatial discrimination prevents beta collapse.
-            2. Source separation discourages beta from simply
-               reproducing source-image appearance.
-
-        Shapes
-        ------
-        query_feature:
-            [B, C, N]
-
-        positive_feature:
-            [B, C, N]
-
-        source_query_feature:
-            [B, C, N]
-
-        source_positive_feature:
-            [B, C, N]
-
-        beta_query:
-            [B, 1, D, H, W]
-
-        beta_positive:
-            [B, 1, D, H, W]
-        """
-
+    def forward(self, query_feature, positive_feature, negative_feature):
         B, C, N = query_feature.shape
+        query_feature = F.normalize(query_feature, dim=1)
+        positive_feature = F.normalize(positive_feature, dim=1)
+        negative_feature = F.normalize(negative_feature, dim=1)
 
-        # # ==========================================================
-        # # 1. DIRECT CROSS-CONTRAST BETA CONSISTENCY
-        # # ==========================================================
+        l_positive = (query_feature * positive_feature).sum(dim=1)[:, :, None]
+        l_negative = torch.bmm(query_feature.permute(0, 2, 1), negative_feature)
 
-        # # This is the property we actually care about:
-        # #
-        # # beta_A ~= beta_B
-        # #
-        # # No patchifier is involved, so the patchifier cannot learn
-        # # a shortcut that hides differences between the beta maps.
+        logits = torch.cat((l_positive, l_negative), dim=2) / self.temperature
 
-        # loss_consistency = F.l1_loss(
-        #     beta_query,
-        #     beta_positive,
-        # )
+        predictions = logits.flatten(0, 1)
+        targets = torch.zeros(B * N, dtype=torch.long).to(query_feature.device)
+        return self.ce_loss(predictions, targets).mean()
 
+# class PatchNCELoss(nn.Module):
+#     def __init__(
+#         self,
+#         temperature=0.1
+#     ):
+#         super().__init__()
 
-        # ==========================================================
-        # Normalize patch features
-        # ==========================================================
+#         self.temperature = temperature
 
-        query_feature = F.normalize(
-            query_feature,
-            dim=1,
-        )
+#     def forward(
+#         self,
+#         query_feature,
+#         positive_feature,
+#         source_query_feature,
+#         source_positive_feature,
+#     ):
+#         """
+#         Beta regularization.
 
-        positive_feature = F.normalize(
-            positive_feature,
-            dim=1,
-        )
+#         Main objective:
+#             Directly force beta maps from the same subject but
+#             different MRI contrasts to be similar.
 
-        source_query_feature = F.normalize(
-            source_query_feature,
-            dim=1,
-        )
+#         Additional PatchNCE constraints:
+#             1. Spatial discrimination prevents beta collapse.
+#             2. Source separation discourages beta from simply
+#                reproducing source-image appearance.
 
-        source_positive_feature = F.normalize(
-            source_positive_feature,
-            dim=1,
-        )
+#         Shapes
+#         ------
+#         query_feature:
+#             [B, C, N]
 
+#         positive_feature:
+#             [B, C, N]
 
-        # ==========================================================
-        # 2. SPATIAL DISCRIMINATION
-        # ==========================================================
-        #
-        # Patch i in beta_A should correspond to patch i in beta_B.
-        #
-        # Other spatial locations are negatives.
-        #
-        # This prevents the trivial solution:
-        #
-        # beta_A = beta_B = constant everywhere.
-        # ==========================================================
+#         source_query_feature:
+#             [B, C, N]
 
-        spatial_logits = torch.bmm(
-            query_feature.permute(0, 2, 1),
-            positive_feature,
-        )
+#         source_positive_feature:
+#             [B, C, N]
 
-        spatial_logits = (
-            spatial_logits / self.temperature
-        )
+#         beta_query:
+#             [B, 1, D, H, W]
 
-        targets = torch.arange(
-            N,
-            device=query_feature.device,
-        )
+#         beta_positive:
+#             [B, 1, D, H, W]
+#         """
 
-        targets = targets.unsqueeze(0).expand(
-            B,
-            -1,
-        )
+#         B, C, N = query_feature.shape
 
-        loss_spatial = F.cross_entropy(
-            spatial_logits.reshape(B * N, N),
-            targets.reshape(B * N),
-        )
+#         # # ==========================================================
+#         # # 1. DIRECT CROSS-CONTRAST BETA CONSISTENCY
+#         # # ==========================================================
 
+#         # # This is the property we actually care about:
+#         # #
+#         # # beta_A ~= beta_B
+#         # #
+#         # # No patchifier is involved, so the patchifier cannot learn
+#         # # a shortcut that hides differences between the beta maps.
 
-        # ==========================================================
-        # 3. SOURCE-IMAGE SEPARATION
-        # ==========================================================
-        #
-        # Beta features should be more similar to corresponding beta
-        # features than to features directly extracted from the
-        # source MRI intensities.
-        # ==========================================================
-
-        positive_similarity = (
-            query_feature * positive_feature
-        ).sum(
-            dim=1,
-            keepdim=False,
-        ).unsqueeze(-1)
-
-        source_a_similarity = torch.bmm(
-            query_feature.permute(0, 2, 1),
-            source_query_feature,
-        )
-
-        source_b_similarity = torch.bmm(
-            query_feature.permute(0, 2, 1),
-            source_positive_feature,
-        )
-
-        source_logits = torch.cat(
-            [
-                positive_similarity,
-                source_a_similarity,
-                source_b_similarity,
-            ],
-            dim=-1,
-        )
-
-        source_logits = (
-            source_logits / self.temperature
-        )
-
-        # Positive is always column 0
-        source_targets = torch.zeros(
-            B * N,
-            dtype=torch.long,
-            device=query_feature.device,
-        )
-
-        loss_source = F.cross_entropy(
-            source_logits.reshape(
-                B * N,
-                1 + 2 * N,
-            ),
-            source_targets,
-        )
+#         # loss_consistency = F.l1_loss(
+#         #     beta_query,
+#         #     beta_positive,
+#         # )
 
 
-        # ==========================================================
-        # TOTAL BETA LOSS
-        # ==========================================================
+#         # ==========================================================
+#         # Normalize patch features
+#         # ==========================================================
 
-        # total = (
-        #     self.lambda_spatial * loss_spatial
-        #     + self.lambda_source * loss_source
-        # )
+#         query_feature = F.normalize(
+#             query_feature,
+#             dim=1,
+#         )
 
-        return {
-            "spatial": loss_spatial,
-            "source": loss_source,
-        }
+#         positive_feature = F.normalize(
+#             positive_feature,
+#             dim=1,
+#         )
+
+#         source_query_feature = F.normalize(
+#             source_query_feature,
+#             dim=1,
+#         )
+
+#         source_positive_feature = F.normalize(
+#             source_positive_feature,
+#             dim=1,
+#         )
+
+
+#         # ==========================================================
+#         # 2. SPATIAL DISCRIMINATION
+#         # ==========================================================
+#         #
+#         # Patch i in beta_A should correspond to patch i in beta_B.
+#         #
+#         # Other spatial locations are negatives.
+#         #
+#         # This prevents the trivial solution:
+#         #
+#         # beta_A = beta_B = constant everywhere.
+#         # ==========================================================
+
+#         spatial_logits = torch.bmm(
+#             query_feature.permute(0, 2, 1),
+#             positive_feature,
+#         )
+
+#         spatial_logits = (
+#             spatial_logits / self.temperature
+#         )
+
+#         targets = torch.arange(
+#             N,
+#             device=query_feature.device,
+#         )
+
+#         targets = targets.unsqueeze(0).expand(
+#             B,
+#             -1,
+#         )
+
+#         loss_spatial = F.cross_entropy(
+#             spatial_logits.reshape(B * N, N),
+#             targets.reshape(B * N),
+#         )
+
+
+#         # ==========================================================
+#         # 3. SOURCE-IMAGE SEPARATION
+#         # ==========================================================
+#         #
+#         # Beta features should be more similar to corresponding beta
+#         # features than to features directly extracted from the
+#         # source MRI intensities.
+#         # ==========================================================
+
+#         positive_similarity = (
+#             query_feature * positive_feature
+#         ).sum(
+#             dim=1,
+#             keepdim=False,
+#         ).unsqueeze(-1)
+
+#         source_a_similarity = torch.bmm(
+#             query_feature.permute(0, 2, 1),
+#             source_query_feature,
+#         )
+
+#         source_b_similarity = torch.bmm(
+#             query_feature.permute(0, 2, 1),
+#             source_positive_feature,
+#         )
+
+#         source_logits = torch.cat(
+#             [
+#                 positive_similarity,
+#                 source_a_similarity,
+#                 source_b_similarity,
+#             ],
+#             dim=-1,
+#         )
+
+#         source_logits = (
+#             source_logits / self.temperature
+#         )
+
+#         # Positive is always column 0
+#         source_targets = torch.zeros(
+#             B * N,
+#             dtype=torch.long,
+#             device=query_feature.device,
+#         )
+
+#         loss_source = F.cross_entropy(
+#             source_logits.reshape(
+#                 B * N,
+#                 1 + 2 * N,
+#             ),
+#             source_targets,
+#         )
+
+
+#         # ==========================================================
+#         # TOTAL BETA LOSS
+#         # ==========================================================
+
+#         # total = (
+#         #     self.lambda_spatial * loss_spatial
+#         #     + self.lambda_source * loss_source
+#         # )
+
+#         return {
+#             "spatial": loss_spatial,
+#             "source": loss_source,
+#         }
 
 class KLDivergenceLoss(nn.Module):
     def __init__(self):
