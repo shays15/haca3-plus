@@ -1524,13 +1524,13 @@ class HACA3:
         # LOSS
         # ==================================================
 
-        # loss = self.calculate_loss(
-        #     rec_image,
-        #     target_image,
-        #     mask,
-        #     beta_contrastive_loss=beta_contrastive_loss,
-        #     is_train=is_train,
-        # )
+        loss = self.calculate_loss(
+            rec_image,
+            target_image,
+            mask,
+            beta_contrastive_loss=beta_contrastive_loss,
+            is_train=is_train,
+        )
 
 
         # ======================================================
