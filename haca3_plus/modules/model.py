@@ -88,10 +88,10 @@ class HACA3:
             final_act='relu'
         )
         
-        # self.patchifier = Patchifier3d(
-        #     in_ch=1,
-        #     out_ch=128
-        # )
+        self.patchifier = Patchifier3d(
+            in_ch=1,
+            out_ch=128
+        )
         
 
         if pretrained_eta_encoder is not None:
@@ -163,7 +163,7 @@ class HACA3:
         # self.eta_encoder.to(self.device)
         self.decoder.to(self.device)
         # self.attention_module.to(self.device)
-        # self.patchifier.to(self.device)
+        self.patchifier.to(self.device)
         
         # self.attention_module.train()?
         self.beta_encoder.train()
@@ -190,7 +190,8 @@ class HACA3:
         # )
         self.optimizer = Adam(
             list(self.beta_encoder.parameters())
-            + list(self.decoder.parameters()),
+            + list(self.decoder.parameters())
+            + list(self.patchifier.parameters()),
             lr=lr,
         )
         self.scheduler = None
