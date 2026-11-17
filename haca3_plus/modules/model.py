@@ -76,10 +76,10 @@ class HACA3:
         #     self.theta_dim + self.eta_dim,
         #     v_ch=self.beta_dim
         # )
-        self.attention_module = AttentionModule3d(
-            self.theta_dim,
-            v_ch=self.beta_dim
-        )
+        # self.attention_module = AttentionModule3d(
+        #     self.theta_dim,
+        #     v_ch=self.beta_dim
+        # )
         
         self.decoder = UNet3d(
             in_ch=1 + self.theta_dim,
@@ -162,9 +162,10 @@ class HACA3:
         self.theta_encoder.to(self.device)
         # self.eta_encoder.to(self.device)
         self.decoder.to(self.device)
-        self.attention_module.to(self.device)
+        # self.attention_module.to(self.device)
         # self.patchifier.to(self.device)
         
+        # self.attention_module.train()?
         self.beta_encoder.train()
         self.theta_encoder.eval()
         
@@ -181,9 +182,14 @@ class HACA3:
         )
 
         # define optimizer and learning rate scheduler
+        # self.optimizer = Adam(
+        #     list(self.beta_encoder.parameters())
+        #     + list(self.attention_module.parameters())
+        #     + list(self.decoder.parameters()),
+        #     lr=lr,
+        # )
         self.optimizer = Adam(
             list(self.beta_encoder.parameters())
-            + list(self.attention_module.parameters())
             + list(self.decoder.parameters()),
             lr=lr,
         )
@@ -471,161 +477,170 @@ class HACA3:
     
     #     return target_image, selected_contrast_id
 
-    def decode(
-        self,
-        logits,
-        target_theta,
-        query,
-        keys,
-        available_contrast_id,
-        mask=None,
-        contrast_dropout=False,
-        contrast_id_to_drop=None,
-    ):
-        """
-        logits:
-            list of N tensors:
-            [B, beta_dim, D, H, W]
+    def decode(self, beta_logits, target_theta):
+        """Decode one selected source's beta with target theta, without attention."""
+        beta = self.channel_aggregation(reparameterize_logit(beta_logits))
+        _, _, D, H, W = beta.shape
+        theta_map = target_theta[:, :, None, None, None].expand(-1, -1, D, H, W)
+        combined_map = torch.cat([beta, theta_map], dim=1)
+        rec_image = checkpoint(self.decoder, combined_map, use_reentrant=False)
+        return rec_image, beta
     
-        target_theta:
-            [B, theta_dim]
+    # def decode(
+    #     self,
+    #     logits,
+    #     target_theta,
+    #     query,
+    #     keys,
+    #     available_contrast_id,
+    #     mask=None,
+    #     contrast_dropout=False,
+    #     contrast_id_to_drop=None,
+    # ):
+    #     """
+    #     logits:
+    #         list of N tensors:
+    #         [B, beta_dim, D, H, W]
     
-        query:
-            [B, theta_dim] # + eta_dim]
+    #     target_theta:
+    #         [B, theta_dim]
     
-        keys:
-            list of N tensors:
-            each [B, theta_dim]# + eta_dim]
+    #     query:
+    #         [B, theta_dim] # + eta_dim]
     
-        available_contrast_id:
-            [B, N]
+    #     keys:
+    #         list of N tensors:
+    #         each [B, theta_dim]# + eta_dim]
     
-        mask:
-            [B, N, D, H, W]
-        """
+    #     available_contrast_id:
+    #         [B, N]
     
-        # --------------------------------
-        # Stack beta logits
-        # --------------------------------
+    #     mask:
+    #         [B, N, D, H, W]
+    #     """
     
-        # [B, N, beta_dim, D, H, W]
-        v = torch.stack(
-            logits,
-            dim=1
-        )
+    #     # --------------------------------
+    #     # Stack beta logits
+    #     # --------------------------------
     
-        # --------------------------------
-        # Stack source keys
-        # --------------------------------
+    #     # [B, N, beta_dim, D, H, W]
+    #     v = torch.stack(
+    #         logits,
+    #         dim=1
+    #     )
     
-        # list N × [B,4]
-        #
-        # ->
-        #
-        # [B,N,4]
+    #     # --------------------------------
+    #     # Stack source keys
+    #     # --------------------------------
     
-        k = torch.stack(
-            keys,
-            dim=1
-        )
+    #     # list N × [B,4]
+    #     #
+    #     # ->
+    #     #
+    #     # [B,N,4]
     
-        # q already:
-        # [B,4]
-        q = query
+    #     k = torch.stack(
+    #         keys,
+    #         dim=1
+    #     )
     
-        # --------------------------------
-        # Contrast dropout
-        # --------------------------------
+    #     # q already:
+    #     # [B,4]
+    #     q = query
     
-        if contrast_dropout:
+    #     # --------------------------------
+    #     # Contrast dropout
+    #     # --------------------------------
     
-            available_contrast_id = dropout_contrasts(
-                available_contrast_id,
-                contrast_id_to_drop
-            )
+    #     if contrast_dropout:
     
-        # --------------------------------
-        # Attention
-        # --------------------------------
+    #         available_contrast_id = dropout_contrasts(
+    #             available_contrast_id,
+    #             contrast_id_to_drop
+    #         )
     
-        logit_fusion, attention = self.attention_module(
-            q,
-            k,
-            v,
-            mask,
-            modality_dropout=1 - available_contrast_id,
-            temperature=10.0
-        )
+    #     # --------------------------------
+    #     # Attention
+    #     # --------------------------------
     
-        # logit_fusion:
-        # [B, beta_dim, D, H, W]
+    #     logit_fusion, attention = self.attention_module(
+    #         q,
+    #         k,
+    #         v,
+    #         mask,
+    #         modality_dropout=1 - available_contrast_id,
+    #         temperature=10.0
+    #     )
     
-        # attention:
-        # [B, N, D, H, W]
+    #     # logit_fusion:
+    #     # [B, beta_dim, D, H, W]
     
-        # --------------------------------
-        # Beta
-        # --------------------------------
+    #     # attention:
+    #     # [B, N, D, H, W]
     
-        beta_fusion = self.channel_aggregation(
-            reparameterize_logit(
-                logit_fusion
-            )
-        )
+    #     # --------------------------------
+    #     # Beta
+    #     # --------------------------------
     
-        # [B,1,D,H,W]
+    #     beta_fusion = self.channel_aggregation(
+    #         reparameterize_logit(
+    #             logit_fusion
+    #         )
+    #     )
     
-        # --------------------------------
-        # Broadcast target theta
-        # --------------------------------
+    #     # [B,1,D,H,W]
     
-        B, _, D, H, W = beta_fusion.shape
+    #     # --------------------------------
+    #     # Broadcast target theta
+    #     # --------------------------------
     
-        target_theta_map = target_theta[
-            :,
-            :,
-            None,
-            None,
-            None
-        ].expand(
-            -1,
-            -1,
-            D,
-            H,
-            W
-        )
+    #     B, _, D, H, W = beta_fusion.shape
     
-        # [B,theta_dim,D,H,W]
+    #     target_theta_map = target_theta[
+    #         :,
+    #         :,
+    #         None,
+    #         None,
+    #         None
+    #     ].expand(
+    #         -1,
+    #         -1,
+    #         D,
+    #         H,
+    #         W
+    #     )
     
-        # --------------------------------
-        # Decoder
-        # --------------------------------
+    #     # [B,theta_dim,D,H,W]
     
-        combined_map = torch.cat(
-            [
-                beta_fusion,
-                target_theta_map
-            ],
-            dim=1
-        )
+    #     # --------------------------------
+    #     # Decoder
+    #     # --------------------------------
     
-        # [B, 1 + theta_dim, D,H,W]
+    #     combined_map = torch.cat(
+    #         [
+    #             beta_fusion,
+    #             target_theta_map
+    #         ],
+    #         dim=1
+    #     )
     
-        # rec_image = self.decoder(
-        #     combined_map
-        # )
-        rec_image = checkpoint(
-            self.decoder,
-            combined_map,
-            use_reentrant=False,
-        )
+    #     # [B, 1 + theta_dim, D,H,W]
     
-        return (
-            rec_image,
-            attention,
-            logit_fusion,
-            beta_fusion
-        )
+    #     # rec_image = self.decoder(
+    #     #     combined_map
+    #     # )
+    #     rec_image = checkpoint(
+    #         self.decoder,
+    #         combined_map,
+    #         use_reentrant=False,
+    #     )
+    
+    #     return (
+    #         rec_image,
+    #         attention,
+    #         logit_fusion,
+    #         beta_fusion
+    #     )
     
     def calculate_beta_contrastive_loss(
         self,
@@ -1188,7 +1203,6 @@ class HACA3:
              'beta_encoder': self.beta_encoder.state_dict(),
              'theta_encoder': self.theta_encoder.state_dict(),
              'decoder': self.decoder.state_dict(),
-             'attention_module': self.attention_module.state_dict(),
              'optimizer': self.optimizer.state_dict(),
              'scheduler': (
                 self.scheduler.state_dict()
@@ -1383,115 +1397,127 @@ class HACA3:
             temperature=0.1,
         )
 
-        # ==================================================
-        # SOURCE THETA / ETA
-        # ==================================================
+        # Encode target contrast theta (pretrained and frozen).
+        theta_target, _, _ = self.calculate_theta(target_image)
 
-        (
-            thetas_source,
-            _,
-            _,
-        ) = self.calculate_theta(
-            source_images
-        )
+        # Select the beta logits corresponding to the target contrast for each batch item.
+        # [B,N,C,D,H,W] -> [B,C,D,H,W]
+        logits_stack = torch.stack(logits, dim=1)
+        selected_indices = contrast_id_for_decoding.argmax(dim=1).long()
+        batch_indices = torch.arange(logits_stack.shape[0], device=self.device)
+        target_logits = logits_stack[batch_indices, selected_indices]
 
-        # etas_source = (
-        #     self.calculate_eta(
-        #         source_images
-        #     )
+        rec_image, beta_fusion = self.decode(target_logits, theta_target)
+
+        # # ==================================================
+        # # SOURCE THETA / ETA
+        # # ==================================================
+
+        # (
+        #     thetas_source,
+        #     _,
+        #     _,
+        # ) = self.calculate_theta(
+        #     source_images
         # )
 
+        # # etas_source = (
+        # #     self.calculate_eta(
+        # #         source_images
+        # #     )
+        # # )
 
-        # ==================================================
-        # TARGET THETA / ETA
-        # ==================================================
 
-        (
-            theta_target,
-            mu_target,
-            logvar_target,
-        ) = self.calculate_theta(
-            target_image
-        )
+        # # ==================================================
+        # # TARGET THETA / ETA
+        # # ==================================================
 
-        # eta_target = (
-        #     self.calculate_eta(
-        #         target_image
-        #     )
+        # (
+        #     theta_target,
+        #     mu_target,
+        #     logvar_target,
+        # ) = self.calculate_theta(
+        #     target_image
         # )
 
+        # # eta_target = (
+        # #     self.calculate_eta(
+        # #         target_image
+        # #     )
+        # # )
 
-        # ==================================================
-        # ATTENTION QUERY / KEYS
-        # ==================================================
 
-        # query = torch.cat(
-        #     [
-        #         theta_target,
-        #         eta_target,
-        #     ],
-        #     dim=1,
+        # # ==================================================
+        # # ATTENTION QUERY / KEYS
+        # # ==================================================
+
+        # # query = torch.cat(
+        # #     [
+        # #         theta_target,
+        # #         eta_target,
+        # #     ],
+        # #     dim=1,
+        # # )
+        # query = theta_target
+
+
+        # # keys = [
+        # #     torch.cat(
+        # #         [
+        # #             theta,
+        # #             eta,
+        # #         ],
+        # #         dim=1,
+        # #     )
+        # #     for (
+        # #         theta,
+        # #         eta,
+        # #     ) in zip(
+        # #         thetas_source,
+        # #         etas_source,
+        # #     )
+        # # ]
+        # keys = thetas_source
+
+        # # ==================================================
+        # # CONTRAST DROPOUT
+        # # ==================================================
+
+        # if (
+        #     is_train
+        #     and torch.rand(
+        #         1
+        #     ).item() > 0.2
+        # ):
+
+        #     contrast_id_to_drop = (
+        #         contrast_id_for_decoding
+        #     )
+
+        # else:
+
+        #     contrast_id_to_drop = None
+
+
+        # # ==================================================
+        # # DECODE FULL 3D VOLUME
+        # # ==================================================
+
+        # (
+        #     rec_image,
+        #     attention,
+        #     logit_fusion,
+        #     beta_fusion,
+        # ) = self.decode(
+        #     logits,
+        #     theta_target,
+        #     query,
+        #     keys,
+        #     available_contrast_id,
+        #     masks,
+        #     contrast_dropout=contrast_dropout,
+        #     contrast_id_to_drop=contrast_id_to_drop,
         # )
-        query = theta_target
-
-
-        # keys = [
-        #     torch.cat(
-        #         [
-        #             theta,
-        #             eta,
-        #         ],
-        #         dim=1,
-        #     )
-        #     for (
-        #         theta,
-        #         eta,
-        #     ) in zip(
-        #         thetas_source,
-        #         etas_source,
-        #     )
-        # ]
-        keys = thetas_source
-
-        # ==================================================
-        # CONTRAST DROPOUT
-        # ==================================================
-
-        if (
-            is_train
-            and torch.rand(
-                1
-            ).item() > 0.2
-        ):
-
-            contrast_id_to_drop = (
-                contrast_id_for_decoding
-            )
-
-        else:
-
-            contrast_id_to_drop = None
-
-
-        # ==================================================
-        # DECODE FULL 3D VOLUME
-        # ==================================================
-
-        (
-            rec_image,
-            attention,
-            logit_fusion,
-            beta_fusion,
-        ) = self.decode(
-            logits,
-            theta_target,
-            query,
-            keys,
-            available_contrast_id,
-            masks,
-            contrast_dropout=contrast_dropout,
-            contrast_id_to_drop=contrast_id_to_drop,
-        )
 
 
         # ==================================================
@@ -1545,279 +1571,279 @@ class HACA3:
         
         cycle_loss = rec_image.new_zeros(())
         
-        if do_inter_site:
-            #print("BEGINNING INTER-SITE CYCLE TRAINING")
+        # if do_inter_site:
+        #     #print("BEGINNING INTER-SITE CYCLE TRAINING")
         
-            # --------------------------------------------------
-            # Cross-subject permutation
-            # --------------------------------------------------
+        #     # --------------------------------------------------
+        #     # Cross-subject permutation
+        #     # --------------------------------------------------
         
-            B = site_ids.shape[0]
+        #     B = site_ids.shape[0]
         
-            perm = torch.roll(
-                torch.arange(
-                    B,
-                    device=self.device,
-                ),
-                shifts=1,
-            )
+        #     perm = torch.roll(
+        #         torch.arange(
+        #             B,
+        #             device=self.device,
+        #         ),
+        #         shifts=1,
+        #     )
         
-            # Example B=2:
-            # [0,1] -> [1,0]
+        #     # Example B=2:
+        #     # [0,1] -> [1,0]
         
         
-            # --------------------------------------------------
-            # Recompute source representations
-            #
-            # IMPORTANT:
-            # intra-site calculate_loss() already performed
-            # backward + optimizer.step(), so make a fresh graph.
-            # --------------------------------------------------
+        #     # --------------------------------------------------
+        #     # Recompute source representations
+        #     #
+        #     # IMPORTANT:
+        #     # intra-site calculate_loss() already performed
+        #     # backward + optimizer.step(), so make a fresh graph.
+        #     # --------------------------------------------------
         
-            # with torch.cuda.amp.autocast():
+        #     # with torch.cuda.amp.autocast():
         
-            inter_logits, inter_betas = self.calculate_beta(
-                source_images
-            )
+        #     inter_logits, inter_betas = self.calculate_beta(
+        #         source_images
+        #     )
     
-            (
-                inter_thetas_source,
-                _,
-                _,
-            ) = self.calculate_theta(
-                source_images
-            )
+        #     (
+        #         inter_thetas_source,
+        #         _,
+        #         _,
+        #     ) = self.calculate_theta(
+        #         source_images
+        #     )
     
-            # inter_etas_source = self.calculate_eta(
-            #     source_images
-            # )
+        #     # inter_etas_source = self.calculate_eta(
+        #     #     source_images
+        #     # )
     
     
-            # --------------------------------------------------
-            # Choose target image again
-            # --------------------------------------------------
+        #     # --------------------------------------------------
+        #     # Choose target image again
+        #     # --------------------------------------------------
     
-            (
-                inter_target_image,
-                inter_contrast_id,
-            ) = self.select_available_contrasts(
-                image_dicts
-            )
+        #     (
+        #         inter_target_image,
+        #         inter_contrast_id,
+        #     ) = self.select_available_contrasts(
+        #         image_dicts
+        #     )
     
-            inter_target_image = inter_target_image.to(
-                self.device,
-                non_blocking=True,
-            )
+        #     inter_target_image = inter_target_image.to(
+        #         self.device,
+        #         non_blocking=True,
+        #     )
 
-            inter_target_image = inter_target_image[perm]
-            inter_contrast_id = inter_contrast_id[perm]
+        #     inter_target_image = inter_target_image[perm]
+        #     inter_contrast_id = inter_contrast_id[perm]
 
-            #print("site_ids:", site_ids)
-            #print("perm:", perm)
-            #print("source subjects:", image_dicts[0]["subj_sess"])
-            # print(
-            #     "target subjects:",
-            #     [
-            #         image_dicts[0]["subj_sess"][i]
-            #         for i in perm.cpu().tolist()
-            #     ]
-            # )
+        #     #print("site_ids:", site_ids)
+        #     #print("perm:", perm)
+        #     #print("source subjects:", image_dicts[0]["subj_sess"])
+        #     # print(
+        #     #     "target subjects:",
+        #     #     [
+        #     #         image_dicts[0]["subj_sess"][i]
+        #     #         for i in perm.cpu().tolist()
+        #     #     ]
+        #     # )
     
-            # --------------------------------------------------
-            # Encode target θ / η
-            # --------------------------------------------------
+        #     # --------------------------------------------------
+        #     # Encode target θ / η
+        #     # --------------------------------------------------
     
-            (
-                theta_ref,
-                _,
-                _,
-            ) = self.calculate_theta(
-                inter_target_image
-            )
+        #     (
+        #         theta_ref,
+        #         _,
+        #         _,
+        #     ) = self.calculate_theta(
+        #         inter_target_image
+        #     )
     
-            # eta_ref = self.calculate_eta(
-            #     inter_target_image
-            # )
+        #     # eta_ref = self.calculate_eta(
+        #     #     inter_target_image
+        #     # )
     
     
-            # query for OTHER subject/site
-            # inter_query = torch.cat(
-            #     [
-            #         theta_ref,
-            #         eta_ref,
-            #     ],
-            #     dim=1,
-            # )
-            inter_query = theta_ref
+        #     # query for OTHER subject/site
+        #     # inter_query = torch.cat(
+        #     #     [
+        #     #         theta_ref,
+        #     #         eta_ref,
+        #     #     ],
+        #     #     dim=1,
+        #     # )
+        #     inter_query = theta_ref
             
-            # --------------------------------------------------
-            # Source keys remain associated with source anatomy
-            # --------------------------------------------------
+        #     # --------------------------------------------------
+        #     # Source keys remain associated with source anatomy
+        #     # --------------------------------------------------
     
-            # inter_keys = [
-            #     torch.cat(
-            #         [
-            #             theta,
-            #             eta,
-            #         ],
-            #         dim=1,
-            #     )
-            #     for theta, eta in zip(
-            #         inter_thetas_source,
-            #         inter_etas_source,
-            #     )
-            # ]
-            inter_keys = inter_thetas_source
+        #     # inter_keys = [
+        #     #     torch.cat(
+        #     #         [
+        #     #             theta,
+        #     #             eta,
+        #     #         ],
+        #     #         dim=1,
+        #     #     )
+        #     #     for theta, eta in zip(
+        #     #         inter_thetas_source,
+        #     #         inter_etas_source,
+        #     #     )
+        #     # ]
+        #     inter_keys = inter_thetas_source
 
-            # --------------------------------------------------
-            # Synthesize source anatomy using shuffled target θ
-            # --------------------------------------------------
+        #     # --------------------------------------------------
+        #     # Synthesize source anatomy using shuffled target θ
+        #     # --------------------------------------------------
     
-            (
-                inter_rec_image,
-                inter_attention,
-                inter_logit_fusion,
-                inter_beta_fusion,
-            ) = self.decode(
-                inter_logits,
-                theta_ref,
-                inter_query,
-                inter_keys,
-                available_contrast_id,
-                masks,
-                contrast_dropout=False,
-                contrast_id_to_drop=None,
-            )
+        #     (
+        #         inter_rec_image,
+        #         inter_attention,
+        #         inter_logit_fusion,
+        #         inter_beta_fusion,
+        #     ) = self.decode(
+        #         inter_logits,
+        #         theta_ref,
+        #         inter_query,
+        #         inter_keys,
+        #         available_contrast_id,
+        #         masks,
+        #         contrast_dropout=False,
+        #         contrast_id_to_drop=None,
+        #     )
     
     
-            # --------------------------------------------------
-            # Re-encode synthetic image
-            # --------------------------------------------------
+        #     # --------------------------------------------------
+        #     # Re-encode synthetic image
+        #     # --------------------------------------------------
     
-            (
-                theta_rec,
-                _,
-                _,
-            ) = self.calculate_theta(
-                inter_rec_image
-            )
+        #     (
+        #         theta_rec,
+        #         _,
+        #         _,
+        #     ) = self.calculate_theta(
+        #         inter_rec_image
+        #     )
     
-            # eta_rec = self.calculate_eta(
-            #     inter_rec_image
-            # )
+        #     # eta_rec = self.calculate_eta(
+        #     #     inter_rec_image
+        #     # )
     
-            beta_rec_logit = self.beta_encoder(
-                inter_rec_image
-            )
+        #     beta_rec_logit = self.beta_encoder(
+        #         inter_rec_image
+        #     )
     
-            beta_rec = self.channel_aggregation(
-                reparameterize_logit(
-                    beta_rec_logit
-                )
-            )
+        #     beta_rec = self.channel_aggregation(
+        #         reparameterize_logit(
+        #             beta_rec_logit
+        #         )
+        #     )
     
-            if (
-                batch_id % 20 == 0
-                and epoch % 1 == 0
-            ):
+        #     if (
+        #         batch_id % 20 == 0
+        #         and epoch % 1 == 0
+        #     ):
         
-                file_name = os.path.join(
-                    self.out_dir,
-                    f"training_results_{self.timestr}",
-                    (
-                        f"{train_or_valid}_"
-                        f"epoch{str(epoch).zfill(3)}_"
-                        f"batch{str(batch_id).zfill(4)}_"
-                        f"inter-site.nii.gz"
-                    ),
-                )
+        #         file_name = os.path.join(
+        #             self.out_dir,
+        #             f"training_results_{self.timestr}",
+        #             (
+        #                 f"{train_or_valid}_"
+        #                 f"epoch{str(epoch).zfill(3)}_"
+        #                 f"batch{str(batch_id).zfill(4)}_"
+        #                 f"inter-site.nii.gz"
+        #             ),
+        #         )
         
-                save_image_3d(
-                    source_images
-                    + [inter_rec_image]
-                    + [inter_target_image]
-                    + inter_betas
-                    + [inter_beta_fusion],
-                    file_name,
-                )
-            # --------------------------------------------------
-            # Cycle losses
-            #
-            # synthetic should preserve:
-            #
-            # β = original source anatomy
-            # θ = shuffled target contrast
-            # η = shuffled target artifact representation
-            # --------------------------------------------------
+        #         save_image_3d(
+        #             source_images
+        #             + [inter_rec_image]
+        #             + [inter_target_image]
+        #             + inter_betas
+        #             + [inter_beta_fusion],
+        #             file_name,
+        #         )
+        #     # --------------------------------------------------
+        #     # Cycle losses
+        #     #
+        #     # synthetic should preserve:
+        #     #
+        #     # β = original source anatomy
+        #     # θ = shuffled target contrast
+        #     # η = shuffled target artifact representation
+        #     # --------------------------------------------------
     
-            theta_cyc = self.l1_loss(
-                theta_rec,
-                theta_ref.detach(),
-            ).mean()
+        #     theta_cyc = self.l1_loss(
+        #         theta_rec,
+        #         theta_ref.detach(),
+        #     ).mean()
     
-            # eta_cyc = self.l1_loss(
-            #     eta_rec,
-            #     eta_ref.detach(),
-            # ).mean()
+        #     # eta_cyc = self.l1_loss(
+        #     #     eta_rec,
+        #     #     eta_ref.detach(),
+        #     # ).mean()
     
-            beta_cyc = self.l1_loss(
-                beta_rec,
-                inter_beta_fusion.detach(),
-            ).mean()
+        #     beta_cyc = self.l1_loss(
+        #         beta_rec,
+        #         inter_beta_fusion.detach(),
+        #     ).mean()
     
-            # cycle_total = (
-            #     theta_cyc
-            #     + eta_cyc
-            #     + 5e-2 * beta_cyc
-            # )
-            cycle_total = (
-                theta_cyc
-                + 5e-2 * beta_cyc
-            )
+        #     # cycle_total = (
+        #     #     theta_cyc
+        #     #     + eta_cyc
+        #     #     + 5e-2 * beta_cyc
+        #     # )
+        #     cycle_total = (
+        #         theta_cyc
+        #         + 5e-2 * beta_cyc
+        #     )
     
-            # --------------------------------------------------
-            # Separate optimizer step
-            # --------------------------------------------------
+        #     # --------------------------------------------------
+        #     # Separate optimizer step
+        #     # --------------------------------------------------
         
-            # self.optimizer.zero_grad(
-            #     set_to_none=True
-            # )
+        #     # self.optimizer.zero_grad(
+        #     #     set_to_none=True
+        #     # )
 
-            # cycle_total.backward()
+        #     # cycle_total.backward()
 
-            # self.optimizer.step()
+        #     # self.optimizer.step()
         
-            # self.scaler.scale(
-            #     5e-2 * cycle_total
-            # ).backward()
+        #     # self.scaler.scale(
+        #     #     5e-2 * cycle_total
+        #     # ).backward()
         
-            # self.scaler.step(
-            #     self.optimizer
-            # )
+        #     # self.scaler.step(
+        #     #     self.optimizer
+        #     # )
         
-            # self.scaler.update()
+        #     # self.scaler.update()
         
-            # self.scheduler.step()
+        #     # self.scheduler.step()
         
         
-            # cycle_loss = {
-            #     "theta_cyc": theta_cyc.item(),
-            #     "eta_cyc": eta_cyc.item(),
-            #     "beta_cyc": beta_cyc.item(),
-            # } 
-            # cycle_loss = {
-            #     "theta_cyc": theta_cyc.item(),
-            #     "beta_cyc": beta_cyc.item(),
-            # } 
-        # Calculate all losses after the optional inter-site block
-        loss = self.calculate_loss(
-            rec_image=rec_image,
-            ref_image=target_image,
-            mask=mask,
-            beta_contrastive_loss=beta_contrastive_loss,
-            cycle_loss=cycle_loss,
-            is_train=is_train,
-        )
+        #     # cycle_loss = {
+        #     #     "theta_cyc": theta_cyc.item(),
+        #     #     "eta_cyc": eta_cyc.item(),
+        #     #     "beta_cyc": beta_cyc.item(),
+        #     # } 
+        #     # cycle_loss = {
+        #     #     "theta_cyc": theta_cyc.item(),
+        #     #     "beta_cyc": beta_cyc.item(),
+        #     # } 
+        # # Calculate all losses after the optional inter-site block
+        # loss = self.calculate_loss(
+        #     rec_image=rec_image,
+        #     ref_image=target_image,
+        #     mask=mask,
+        #     beta_contrastive_loss=beta_contrastive_loss,
+        #     cycle_loss=cycle_loss,
+        #     is_train=is_train,
+        # )
     
         # ======================================================
         # TENSORBOARD
@@ -1891,7 +1917,7 @@ class HACA3:
             # self.eta_encoder.eval()
     
             self.decoder.train()
-            self.attention_module.train()
+            # self.attention_module.train()
             # self.patchifier.train()
     
     
@@ -2049,7 +2075,7 @@ class HACA3:
         self.beta_encoder.eval()
         self.theta_encoder.eval()
         # self.eta_encoder.eval()
-        self.attention_module.eval()
+        # self.attention_module.eval()
         self.decoder.eval()
     
         device = self.device
@@ -2309,33 +2335,39 @@ class HACA3:
             with torch.inference_mode():
     
                 with torch.cuda.amp.autocast():
-    
-                    # --------------------------------------------
-                    # Attention fusion
-                    # --------------------------------------------
-    
-                    (
-                        logit_fusion,
-                        attention,
-                    ) = self.attention_module(
-                        q=query,
-                        k=keys_stack,
-                        v=logits_stack,
-                        mask=masks,
-                        modality_dropout=modality_dropout,
+
+                    # Without attention, use the first source contrast's beta.
+                    # For multi-source harmonization, explicitly choose a source upstream.
+                    beta_fusion = self.channel_aggregation(
+                        reparameterize_logit(logits[0])
                     )
+    
+                    # # --------------------------------------------
+                    # # Attention fusion
+                    # # --------------------------------------------
+    
+                    # (
+                    #     logit_fusion,
+                    #     attention,
+                    # ) = self.attention_module(
+                    #     q=query,
+                    #     k=keys_stack,
+                    #     v=logits_stack,
+                    #     mask=masks,
+                    #     modality_dropout=modality_dropout,
+                    # )
     
                     # --------------------------------------------
                     # Convert β logits to continuous anatomy map
                     # --------------------------------------------
     
-                    beta_fusion = (
-                        self.channel_aggregation(
-                            reparameterize_logit(
-                                logit_fusion
-                            )
-                        )
-                    )
+                    # beta_fusion = (
+                    #     self.channel_aggregation(
+                    #         reparameterize_logit(
+                    #             logit_fusion
+                    #         )
+                    #     )
+                    # )
     
                     # --------------------------------------------
                     # Decoder expects:
@@ -2514,41 +2546,41 @@ class HACA3:
                 # [B, N, D, H, W]
                 # ----------------------------------------------
             
-                attention_np = (
-                    attention
-                    .detach()
-                    .float()
-                    .cpu()
-                    .numpy()[0]
-                )
+                # attention_np = (
+                #     attention
+                #     .detach()
+                #     .float()
+                #     .cpu()
+                #     .numpy()[0]
+                # )
             
-                for source_idx in range(
-                    attention_np.shape[0]
-                ):
+                # for source_idx in range(
+                #     attention_np.shape[0]
+                # ):
             
-                    attention_vol = (
-                        attention_np[source_idx]
-                    )
+                #     attention_vol = (
+                #         attention_np[source_idx]
+                #     )
             
-                    attention_obj = nib.Nifti1Image(
-                        attention_vol,
-                        affine,
-                        header=header.copy(),
-                    )
+                #     attention_obj = nib.Nifti1Image(
+                #         attention_vol,
+                #         affine,
+                #         header=header.copy(),
+                #     )
             
-                    attention_path = (
-                        intermediate_out_dir
-                        / (
-                            f"target_{target_index:02d}_"
-                            f"attention_source_{source_idx}.nii.gz"
-                        )
-                    )
+                #     attention_path = (
+                #         intermediate_out_dir
+                #         / (
+                #             f"target_{target_index:02d}_"
+                #             f"attention_source_{source_idx}.nii.gz"
+                #         )
+                #     )
             
-                    nib.save(
-                        attention_obj,
-                        str(attention_path),
-                    )
+                #     nib.save(
+                #         attention_obj,
+                #         str(attention_path),
+                #     )
             
-                    print(
-                        f"Saved attention: {attention_path}"
-                    )
+                #     print(
+                #         f"Saved attention: {attention_path}"
+                #     )
