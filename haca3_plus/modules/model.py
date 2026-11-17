@@ -405,6 +405,46 @@ class HACA3:
             / self.beta_dim
         )
 
+    def save_beta_volumes(self, betas, file_name, affine=None):
+        """
+        Save aggregated beta maps from all source contrasts.
+    
+        betas:
+            list of tensors, each [B, 1, D, H, W]
+    
+        Output:
+            4D NIfTI [D, H, W, num_contrasts]
+            for the first subject in the batch.
+        """
+    
+        with torch.no_grad():
+    
+            beta_stack = torch.cat(
+                [beta[0] for beta in betas],
+                dim=0,
+            )
+    
+            # [num_contrasts, D, H, W]
+    
+            beta_np = (
+                beta_stack
+                .permute(1, 2, 3, 0)
+                .detach()
+                .cpu()
+                .numpy()
+                .astype(np.float32)
+            )
+    
+            # [D, H, W, num_contrasts]
+    
+            if affine is None:
+                affine = np.eye(4)
+    
+            nib.save(
+                nib.Nifti1Image(beta_np, affine),
+                str(file_name),
+            )
+
     def select_available_contrasts(self, image_dicts):
         """
         Select available contrasts as target.
@@ -1532,30 +1572,32 @@ class HACA3:
             is_train=is_train,
         )
 
-
         # ======================================================
         # SAVE TRAINING EXAMPLES
         # ======================================================
-        if (
-            batch_id % 20 == 0
-            and epoch % 1 == 0
-        ):
-    
-            file_name = os.path.join(
+        
+        if batch_id % 20 == 0:
+        
+            output_dir = os.path.join(
                 self.out_dir,
                 f"training_results_{self.timestr}",
-                (
-                    f"{train_or_valid}_"
-                    f"epoch{str(epoch).zfill(3)}_"
-                    f"batch{str(batch_id).zfill(4)}_"
-                    f"intra-site.nii.gz"
-                ),
             )
-
-            # print("Number of betas:", len(betas))
-            # for i, beta in enumerate(betas):
-                # print(f"beta {i} shape: {beta.shape}")
-    
+        
+            prefix = (
+                f"{train_or_valid}_"
+                f"epoch{str(epoch).zfill(3)}_"
+                f"batch{str(batch_id).zfill(4)}"
+            )
+        
+            # ----------------------------------------------
+            # 1. Existing combined training visualization
+            # ----------------------------------------------
+        
+            file_name = os.path.join(
+                output_dir,
+                f"{prefix}_intra-site.nii.gz",
+            )
+        
             save_image_3d(
                 source_images
                 + [rec_image]
@@ -1563,6 +1605,20 @@ class HACA3:
                 + betas
                 + [beta_fusion],
                 file_name,
+            )
+        
+            # ----------------------------------------------
+            # 2. Separate source beta visualization
+            # ----------------------------------------------
+        
+            beta_file = os.path.join(
+                output_dir,
+                f"{prefix}_source_betas.nii.gz",
+            )
+        
+            self.save_beta_volumes(
+                betas,
+                beta_file,
             )
     
         # ======================================================
