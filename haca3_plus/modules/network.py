@@ -307,8 +307,8 @@ class EtaEncoder3d(nn.Module):
 class Patchifier3d(nn.Module):
     def __init__(
         self,
-        in_ch,
-        out_ch=1,
+        in_ch=1,
+        out_ch=128,
         patch_size=32
     ):
         super().__init__()
