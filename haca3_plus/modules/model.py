@@ -685,91 +685,71 @@ class HACA3:
     
     def calculate_beta_contrastive_loss(
         self,
-        logits,
+        betas,
         available_contrast_id,
         masks,
-        num_patches=512,
-        temperature=0.1,
+        num_patches=256,
+        temperature=None,
     ):
+        """PatchNCE on corresponding 3D patches of aggregated beta maps.
+
+        betas: list of [B, 1, D, H, W] aggregated Gumbel beta maps.
+        available_contrast_id: [B, num_contrasts]
+        masks: [B, num_contrasts, D, H, W]
+
+        Each query patch has one positive at the same location in another
+        contrast. Negatives are other spatial patches from that contrast;
+        the matching location is explicitly excluded. Positive and negative
+        embeddings are detached, as in the original 2D training method.
         """
-        Cross-contrast InfoNCE on beta logits.
-    
-        logits:
-            list of [B, beta_dim, D, H, W]
-    
-        available_contrast_id:
-            [B, N_contrasts]
-    
-        masks:
-            [B, N_contrasts, D, H, W]
-        """
-    
-        total_loss = logits[0].sum() * 0.0
+        total_loss = betas[0].sum() * 0.0
         num_pairs = 0
-    
-        B = logits[0].shape[0]
-    
-        for b in range(B):
-    
-            available = torch.where(
-                available_contrast_id[b] > 0
-            )[0].tolist()
-    
+        batch_size = betas[0].shape[0]
+
+        for b in range(batch_size):
+            available = torch.where(available_contrast_id[b] > 0)[0].tolist()
             if len(available) < 2:
                 continue
-    
-            # Randomly select two available contrasts
+
             a, c = random.sample(available, 2)
-    
-            # Only compare voxels valid in both contrasts
-            valid_mask = (
-                masks[b, a].bool()
-                & masks[b, c].bool()
+
+            # Patchifier returns [1, C, Dp, Hp, Wp].
+            grid_a = self.patchifier(betas[a][b:b+1])
+            grid_c = self.patchifier(betas[c][b:b+1])
+            features_a = grid_a.flatten(2)
+            features_c = grid_c.flatten(2)
+
+            # Determine valid patches in the intersection of foreground masks.
+            # Adaptive pooling follows the patchifier's output grid.
+            common_mask = (masks[b, a].bool() & masks[b, c].bool())
+            valid_fraction = F.adaptive_avg_pool3d(
+                common_mask[None, None].float(),
+                output_size=grid_a.shape[2:],
             )
-    
-            valid_indices = torch.nonzero(
-                valid_mask.flatten(),
-                as_tuple=False
-            ).flatten()
-    
-            if valid_indices.numel() < 2:
+            valid = valid_fraction.flatten() >= 0.5
+            indices = torch.where(valid)[0]
+            if indices.numel() < 2:
                 continue
-    
-            n = min(num_patches, valid_indices.numel())
-    
-            selected = valid_indices[
-                torch.randperm(
-                    valid_indices.numel(),
-                    device=valid_indices.device
-                )[:n]
-            ]
-    
-            # [beta_dim, D*H*W] -> [N, beta_dim]
-            feat_a = logits[a][b].flatten(1)[:, selected].T
-            feat_c = logits[c][b].flatten(1)[:, selected].T
-    
-            feat_a = F.normalize(feat_a.float(), dim=1)
-            feat_c = F.normalize(feat_c.float(), dim=1)
-    
-            # Pairwise cosine similarity [N, N]
-            similarity = feat_a @ feat_c.T
-            similarity = similarity / temperature
-    
-            labels = torch.arange(
-                n,
-                device=similarity.device
-            )
-    
-            # Symmetric contrastive loss
-            loss_ac = F.cross_entropy(similarity, labels)
-            loss_ca = F.cross_entropy(similarity.T, labels)
-    
-            total_loss = total_loss + 0.5 * (loss_ac + loss_ca)
+            if num_patches is not None and indices.numel() > num_patches:
+                indices = indices[torch.randperm(indices.numel(), device=indices.device)[:num_patches]]
+
+            # [1, C, N] -> [N, C]
+            qa = features_a[0].index_select(1, indices).transpose(0, 1)
+            pc = features_c[0].index_select(1, indices).transpose(0, 1)
+            n = indices.numel()
+
+            # For each query, construct the N-1 nonmatching spatial negatives.
+            # Vectorized across query positions: [N, C, N-1].
+            other = ~torch.eye(n, dtype=torch.bool, device=indices.device)
+            negative = pc.detach().unsqueeze(0).expand(n, -1, -1)[other].reshape(n, n-1, pc.shape[1]).permute(0, 2, 1)
+            query = qa.unsqueeze(-1)
+            positive = pc.detach().unsqueeze(-1)
+
+            total_loss = total_loss + self.contrastive_loss(query, positive, negative)
             num_pairs += 1
-    
-        if num_pairs > 0:
+
+        if num_pairs:
             total_loss = total_loss / num_pairs
-    
         return total_loss
 
     # def calculate_features_for_contrastive_loss(
@@ -1244,6 +1224,7 @@ class HACA3:
              'beta_encoder': self.beta_encoder.state_dict(),
              'theta_encoder': self.theta_encoder.state_dict(),
              'decoder': self.decoder.state_dict(),
+             'patchifier': self.patchifier.state_dict(),
              'optimizer': self.optimizer.state_dict(),
              'scheduler': (
                 self.scheduler.state_dict()
@@ -1431,7 +1412,7 @@ class HACA3:
             )
         )
         beta_contrastive_loss = self.calculate_beta_contrastive_loss(
-            logits=logits,
+            betas=betas,
             available_contrast_id=available_contrast_id,
             masks=masks,
             num_patches=256,
@@ -1447,6 +1428,7 @@ class HACA3:
         selected_indices = contrast_id_for_decoding.argmax(dim=1).long()
         batch_indices = torch.arange(logits_stack.shape[0], device=self.device)
         target_logits = logits_stack[batch_indices, selected_indices]
+        mask = masks[batch_indices, selected_indices].unsqueeze(1)
 
         rec_image, beta_fusion = self.decode(target_logits, theta_target)
 
