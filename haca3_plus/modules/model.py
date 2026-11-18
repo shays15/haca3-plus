@@ -1081,7 +1081,7 @@ class HACA3:
         lambda_rec = 10.0
         lambda_per = 0.1
         lambda_beta = 0.5
-        lambda_consistency = 0.1
+        lambda_consistency = 1.0
         lambda_cycle = 0.00
         
         weighted_rec = lambda_rec * rec_loss
