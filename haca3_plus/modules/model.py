@@ -1242,7 +1242,7 @@ class HACA3:
         
         self.writer.add_scalar(
             f'{train_or_valid}/beta_consistency_loss',
-            loss['beta_contrastive_loss'],
+            loss['beta_consistency_loss'],
             curr_iteration
         )
         
