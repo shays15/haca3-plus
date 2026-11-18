@@ -24,6 +24,7 @@ from .network import (
     AttentionModule3d,
 )
 from torch.utils.checkpoint import checkpoint
+from monai.losses import PerceptualLoss as MONAIPerceptualLoss
 
 # from .beta_model import BetaModel
 
@@ -175,8 +176,17 @@ class HACA3:
         # define loss functions
         self.l1_loss = nn.L1Loss(reduction='none')
         self.kld_loss = KLDivergenceLoss()
-        vgg = models.vgg16(weights=models.VGG16_Weights.IMAGENET1K_V1).features.to(self.device)
-        self.perceptual_loss = PerceptualLoss(vgg)
+        self.perceptual_loss = MONAIPerceptualLoss(
+            spatial_dims=3,
+            network_type="medicalnet_resnet10_23datasets",
+            is_fake_3d=False,
+        ).to(self.device)
+        
+        self.perceptual_loss.eval()
+        
+        for param in self.perceptual_loss.parameters():
+            param.requires_grad_(False)
+
         self.contrastive_loss = PatchNCELoss(
             temperature=0.1
         )
@@ -950,46 +960,38 @@ class HACA3:
         ).mean()
     
         # ======================================================
-        # 2. 2D PERCEPTUAL LOSS
+        # 2. 3D PERCEPTUAL LOSS
         # ======================================================
         
-        D = rec_image.shape[2]
+        # perceptual_loss = self.perceptual_loss(
+        #     rec_image.float(),
+        #     ref_image.float()
+        # ).mean()
+
+        rec_small = F.interpolate(
+            rec_image.float(),
+            scale_factor=0.5,
+            mode="trilinear",
+            align_corners=False,
+        )
         
-        slice_ids = [
-            D // 4,
-            D // 2,
-            3 * D // 4,
-        ]
+        ref_small = F.interpolate(
+            ref_image.float(),
+            size=rec_small.shape[2:],
+            mode="trilinear",
+            align_corners=False,
+        )
         
-        perceptual_loss = torch.tensor(0.0, device=self.device)
-        
-        for slice_idx in slice_ids:
-        
-            rec_slice = rec_image[
-                :, :, slice_idx, :, :
-            ]
-        
-            target_slice = ref_image[
-                :, :, slice_idx, :, :
-            ]
-        
-            perceptual_loss = (
-                perceptual_loss
-                + self.perceptual_loss(
-                    rec_slice,
-                    target_slice,
-                )
-            )
-        
-        perceptual_loss = (
-            perceptual_loss / len(slice_ids)
-        ) 
+        perceptual_loss = self.perceptual_loss(
+            rec_small,
+            ref_small
+        ).mean()
     
         # ======================================================
         # 3. TOTAL LOSS
         # ======================================================
         lambda_rec = 10.0
-        lambda_per = 0.00
+        lambda_per = 0.1
         lambda_beta = 0.5
         lambda_cycle = 0.00
         
