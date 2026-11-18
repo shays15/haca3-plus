@@ -1528,11 +1528,11 @@ class HACA3:
             temperature=0.1,
         )
         # Compute consistency across the five-channel beta probabilities
-            beta_consistency_loss = self.calculate_beta_consistency_loss(
-                logits=logits,
-                available_contrast_id=available_contrast_id,
-                masks=masks,
-            )
+        beta_consistency_loss = self.calculate_beta_consistency_loss(
+            logits=logits,
+            available_contrast_id=available_contrast_id,
+            masks=masks,
+        )
 
         # Encode target contrast theta (pretrained and frozen).
         theta_target, _, _ = self.calculate_theta(target_image)
