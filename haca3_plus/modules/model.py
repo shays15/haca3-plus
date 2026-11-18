@@ -692,6 +692,93 @@ class HACA3:
     #         logit_fusion,
     #         beta_fusion
     #     )
+    def calculate_beta_consistency_loss(
+        self,
+        logits,
+        available_contrast_id,
+        masks,
+        eps=1e-8,
+    ):
+        """
+        Jensen-Shannon consistency across MRI contrasts.
+    
+        logits:
+            List of [B, beta_dim, D, H, W]
+    
+        available_contrast_id:
+            [B, N_contrasts]
+    
+        masks:
+            [B, N_contrasts, D, H, W]
+
+        Returns:
+            Scalar mean JS divergence across available
+            contrast pairs and shared foreground voxels.
+        """
+    
+        probabilities = [
+            torch.softmax(logit.float(), dim=1)
+            for logit in logits
+        ]
+    
+        total_loss = logits[0].new_zeros(
+            (), dtype=torch.float32
+        )
+        num_pairs = 0
+
+        B = logits[0].shape[0]
+    
+        for b in range(B):
+    
+            available = torch.where(
+                available_contrast_id[b] > 0
+            )[0].tolist()
+    
+            for i in range(len(available)):
+                for j in range(i + 1, len(available)):
+    
+                    a = available[i]
+                    c = available[j]
+    
+                    valid = (
+                        masks[b, a].bool()
+                        & masks[b, c].bool()
+                    )
+    
+                    if not valid.any().item():
+                        continue
+
+                    # [N_voxels, beta_dim]
+                    pa = probabilities[a][b, :, valid].T
+                    pc = probabilities[c][b, :, valid].T
+    
+                    # Mean distribution
+                    m = 0.5 * (pa + pc)
+    
+                    # Jensen-Shannon divergence
+                    js = 0.5 * (
+                        (
+                            pa * (
+                                torch.log(pa.clamp_min(eps))
+                                - torch.log(m.clamp_min(eps))
+                            )
+                        ).sum(dim=1)
+                        +
+                        (
+                            pc * (
+                                torch.log(pc.clamp_min(eps))
+                                - torch.log(m.clamp_min(eps))
+                            )
+                        ).sum(dim=1)
+                    ).mean()
+    
+                    total_loss = total_loss + js
+                    num_pairs += 1
+    
+        if num_pairs > 0:
+            total_loss = total_loss / num_pairs
+    
+        return total_loss
     
     def calculate_beta_contrastive_loss(
         self,
@@ -939,6 +1026,7 @@ class HACA3:
         ref_image,
         mask,
         beta_contrastive_loss=None,
+        beta_consistency_loss=None,
         cycle_loss=None,
         is_train=True,
     ):
@@ -993,6 +1081,7 @@ class HACA3:
         lambda_rec = 10.0
         lambda_per = 0.1
         lambda_beta = 0.5
+        lambda_consistency = 0.1
         lambda_cycle = 0.00
         
         weighted_rec = lambda_rec * rec_loss
@@ -1000,6 +1089,8 @@ class HACA3:
         
         if beta_contrastive_loss is None:
             beta_contrastive_loss = rec_image.new_zeros(())
+        if beta_consistency_loss is None:
+            beta_consistency_loss = rec_image.new_zeros(())
         if cycle_loss is None:
             cycle_loss = rec_image.new_zeros(())
         elif not torch.is_tensor(cycle_loss):
@@ -1007,13 +1098,15 @@ class HACA3:
         
         weighted_beta = lambda_beta * beta_contrastive_loss
         weighted_cycle = lambda_cycle * cycle_loss
-
+        weighted_consistency = lambda_consistency * beta_consistency_loss
         
         total_loss = (
             weighted_rec
             + weighted_per
             + weighted_beta
             + weighted_cycle
+            + weighted_consistency
+
         )
     
         # ======================================================
@@ -1056,10 +1149,12 @@ class HACA3:
             "rec_loss": rec_loss.item(),
             "per_loss": perceptual_loss.item(),
             "beta_contrastive_loss": beta_contrastive_loss.item(),
+            "beta_consistency_loss": beta_consistency_loss.item(),
+            "cycle_loss": cycle_loss.item(),
             "weighted_rec": weighted_rec.item(),
             "weighted_per": weighted_per.item(),
             "weighted_beta": weighted_beta.item(),
-            "cycle_loss": cycle_loss.item(),
+            "weighted_consistency": weighted_consistency.item(),
             "weighted_cycle": weighted_cycle.item(),
             "total_loss": total_loss.item(),
         }
@@ -1146,6 +1241,12 @@ class HACA3:
         )
         
         self.writer.add_scalar(
+            f'{train_or_valid}/beta_consistency_loss',
+            loss['beta_contrastive_loss'],
+            curr_iteration
+        )
+        
+        self.writer.add_scalar(
             f'{train_or_valid}/cycle_loss',
             loss['cycle_loss'],
             curr_iteration
@@ -1180,6 +1281,12 @@ class HACA3:
                 f'{train_or_valid}/weighted/weighted_beta',
                 loss['weighted_beta'],
                 curr_iteration
+            )
+
+            self.writer.add_scalar(
+                f"{train_or_valid}/weighted/beta_consistency",
+                loss["weighted_consistency"],
+                curr_iteration,
             )
 
         # =====================================================
@@ -1554,6 +1661,7 @@ class HACA3:
             target_image,
             mask,
             beta_contrastive_loss=beta_contrastive_loss,
+            beta_consistency_loss=beta_consistency_loss,
             is_train=is_train,
         )
 
@@ -2152,6 +2260,11 @@ class HACA3:
 
             logits, betas = self.calculate_beta(
                 source_images
+            )
+            beta_consistency_loss = self.calculate_beta_consistency_loss(
+                logits=logits,
+                available_contrast_id=available_contrast_id,
+                masks=masks,
             )
 
             # ------------------------------------------------
